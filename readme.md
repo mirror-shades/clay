@@ -1,6 +1,6 @@
 ## built with zig 0.15
 
-## can be built using 'zig build'
+- use 'zig build' to build from source
 
 # Clay Language Documentation
 
