@@ -1,3 +1,7 @@
+## built with zig 0.15
+
+## can be built using 'zig build'
+
 # Clay Language Documentation
 
 Clay is a minimalist data representation language designed for clear, typed data structures. It prioritizes simplicity, compile-time error detection, and explicitness, making it ideal for configuration files, data serialization, and simple data modeling. Clay maps directly to Zig types for efficient integration.
