@@ -90,6 +90,22 @@ pub const Parser = struct {
                 .TKN_IDENTIFIER, .TKN_CONST => try self.parseStatement(),
                 .TKN_NEWLINE => self.advance(),
                 .TKN_EOF => break,
+                .TKN_SLASH => {
+                    // Skip the slash and the rest of the line (comment)
+                    if (self.debug) {
+                        print("Skipping comment\n", .{});
+                    }
+                    self.advance(); // Skip the slash
+
+                    // Skip all tokens until we hit a newline or EOF
+                    while (self.current < self.tokens.len) {
+                        const curr = self.tokens[self.current];
+                        if (curr.kind == .TKN_NEWLINE or curr.kind == .TKN_EOF) {
+                            break;
+                        }
+                        self.advance();
+                    }
+                },
                 else => return ParserError.UnexpectedToken,
             }
         }
@@ -156,6 +172,24 @@ pub const Parser = struct {
             }
         }
 
+        // Search up the parent chain starting from current parent
+        var current_node = self.current_parent;
+        // In Zig, we can't compare a non-optional pointer with null
+        // Instead, we keep going until we reach the root (which has no parent)
+        while (true) {
+            if (self.findNodeByName(current_node, ref_name)) |found_node| {
+                if (found_node.type == .Variable) {
+                    if (found_node.value) |value| {
+                        return value;
+                    }
+                }
+            }
+
+            // If we're at a node with no parent or reached the root, stop
+            if (current_node.parent == null) break;
+            current_node = current_node.parent.?;
+        }
+
         // If we got here, the reference wasn't found or wasn't accessible
         return ParserError.UndefinedReference;
     }
@@ -166,9 +200,31 @@ pub const Parser = struct {
         }
 
         // Parse type
-        const type_token = try self.consume(.TKN_TYPE_INT);
+        const type_token = self.peek() orelse return ParserError.UnexpectedEOF;
+        var value_type: token.ValueType = undefined;
+
+        switch (type_token.kind) {
+            .TKN_TYPE_INT => {
+                _ = try self.consume(.TKN_TYPE_INT);
+                value_type = .int;
+            },
+            .TKN_TYPE_FLOAT => {
+                _ = try self.consume(.TKN_TYPE_FLOAT);
+                value_type = .float;
+            },
+            .TKN_TYPE_STRING => {
+                _ = try self.consume(.TKN_TYPE_STRING);
+                value_type = .string;
+            },
+            .TKN_TYPE_BOOL => {
+                _ = try self.consume(.TKN_TYPE_BOOL);
+                value_type = .bool;
+            },
+            else => return ParserError.UnexpectedToken,
+        }
+
         if (self.debug) {
-            print("Type: {s}\n", .{type_token});
+            print("Type: {s}\n", .{@tagName(value_type)});
         }
 
         // Parse value assignment
@@ -189,6 +245,32 @@ pub const Parser = struct {
                 final_value = .{ .int = value };
                 self.advance();
             },
+            .TKN_VALUE_FLOAT => {
+                const value_text = self.input[value_token.start..value_token.end];
+                if (self.debug) {
+                    print("Float value: {s}\n", .{value_text});
+                }
+                const value = std.fmt.parseFloat(f64, value_text) catch return ParserError.InvalidValue;
+                final_value = .{ .float = value };
+                self.advance();
+            },
+            .TKN_VALUE_STRING => {
+                const value_text = self.input[value_token.start..value_token.end];
+                if (self.debug) {
+                    print("String value: {s}\n", .{value_text});
+                }
+                final_value = .{ .string = value_text };
+                self.advance();
+            },
+            .TKN_VALUE_BOOL => {
+                const value_text = self.input[value_token.start..value_token.end];
+                if (self.debug) {
+                    print("Bool value: {s}\n", .{value_text});
+                }
+                const value = std.mem.eql(u8, value_text, "true");
+                final_value = .{ .bool = value };
+                self.advance();
+            },
             .TKN_IDENTIFIER => {
                 const ref_name = try self.consume(.TKN_IDENTIFIER);
                 if (self.debug) {
@@ -198,7 +280,7 @@ pub const Parser = struct {
                 // Check if this is a nested reference
                 const next = self.peek() orelse return ParserError.UnexpectedEOF;
                 if (next.kind == .TKN_ARROW) {
-                    // This is a nested reference
+                    // This is a nested reference to a group member
                     const group_node = self.symbol_table.get(ref_name) orelse return ParserError.UndefinedReference;
                     if (group_node.type != .Group) {
                         return ParserError.UnexpectedToken; // Can't use -> on non-group
@@ -206,28 +288,54 @@ pub const Parser = struct {
 
                     self.advance(); // consume ->
                     const child_name = try self.consume(.TKN_IDENTIFIER);
+
+                    if (self.debug) {
+                        print("Looking for child: {s} in group: {s}\n", .{ child_name, ref_name });
+                    }
+
+                    // Find the child in the group's children
                     const child_node = self.findNodeByName(group_node, child_name) orelse return ParserError.UndefinedReference;
 
+                    if (self.debug) {
+                        print("Found child: {s} of type: {any}\n", .{ child_name, child_node.type });
+                    }
+
                     if (child_node.value) |value| {
+                        if (self.debug) {
+                            print("Child value: {any}\n", .{value});
+                        }
                         final_value = value;
                     } else {
+                        if (self.debug) {
+                            print("Child has no value\n", .{});
+                        }
                         return ParserError.UndefinedReference;
                     }
                 } else {
-                    // Simple reference - check if it's in the global scope
-                    // We need to make sure we get a GLOBAL variable
+                    // Look for variable in current scope or parent scopes
+                    var current_node = self.current_parent;
                     var found = false;
-                    if (self.symbol_table.get(ref_name)) |found_node| {
-                        if (found_node.type == .Variable) {
-                            // Check if it's accessible from current scope
-                            if (found_node.parent == self.root) {
-                                // It's a global variable
+
+                    // Loop through parent chain
+                    while (!found) {
+                        if (self.findNodeByName(current_node, ref_name)) |found_node| {
+                            if (found_node.type == .Variable) {
                                 if (found_node.value) |value| {
                                     final_value = value;
                                     found = true;
                                 }
-                            } else if (found_node.parent == self.current_parent) {
-                                // It's in the same scope
+                            }
+                        }
+
+                        // Exit the loop if we're at the root or a node with no parent
+                        if (current_node.parent == null) break;
+                        current_node = current_node.parent.?;
+                    }
+
+                    // Also check global scope in symbol table
+                    if (!found) {
+                        if (self.symbol_table.get(ref_name)) |found_node| {
+                            if (found_node.type == .Variable) {
                                 if (found_node.value) |value| {
                                     final_value = value;
                                     found = true;
@@ -254,7 +362,7 @@ pub const Parser = struct {
         // Create node with resolved value
         node = try ast.Node.init(self.allocator, .Variable, name);
         node.value = final_value;
-        node.value_type = .int;
+        node.value_type = value_type;
         node.is_const = is_const;
         node.parent = self.current_parent; // Set the parent
 
@@ -302,10 +410,70 @@ pub const Parser = struct {
             self.advance(); // consume {
             while (self.current < self.tokens.len) {
                 const tkn = self.tokens[self.current];
+
                 if (tkn.kind == .TKN_RBRACE) {
                     self.advance();
                     break;
+                } else if (tkn.kind == .TKN_NEWLINE) {
+                    // Skip newlines inside groups
+                    self.advance();
+                    continue;
+                } else if (tkn.kind == .TKN_IDENTIFIER or tkn.kind == .TKN_CONST) {
+                    try self.parseStatement();
+                } else {
+                    return ParserError.UnexpectedToken;
                 }
+            }
+        } else if (next.kind == .TKN_IDENTIFIER) {
+            // Handle direct variable assignment pattern: group -> varname = value
+            const var_name = try self.consume(.TKN_IDENTIFIER);
+
+            // Check for assignment
+            const assign = self.peek() orelse return ParserError.UnexpectedEOF;
+            if (assign.kind == .TKN_VALUE_ASSIGN) {
+                self.advance(); // consume =
+
+                // Create a simple variable in this group
+                const child_node = try ast.Node.init(self.allocator, .Variable, var_name);
+                child_node.parent = node;
+
+                // Parse the value - it could be a literal or a reference
+                const value_token = self.peek() orelse return ParserError.UnexpectedEOF;
+
+                if (value_token.kind == .TKN_IDENTIFIER) {
+                    // This is a reference
+                    const ref_name = try self.consume(.TKN_IDENTIFIER);
+
+                    // Look for the reference in all accessible scopes
+                    const ref_value = try self.resolveReference(ref_name);
+
+                    // Set this as the child's value
+                    child_node.value = ref_value;
+
+                    // Determine value type from the reference
+                    switch (ref_value) {
+                        .int => child_node.value_type = .int,
+                        .float => child_node.value_type = .float,
+                        .string => child_node.value_type = .string,
+                        .bool => child_node.value_type = .bool,
+                        .time => child_node.value_type = .time,
+                        .array => child_node.value_type = .array,
+                        .null => child_node.value_type = .null,
+                    }
+                } else {
+                    // This is a literal value
+                    try self.parseStatement();
+                    return;
+                }
+
+                // Add to the group's children
+                try node.children.?.append(child_node);
+            } else if (assign.kind == .TKN_TYPE_ASSIGN) {
+                // This is a type assignment (var_name : type = value)
+                // We need to back up the current counter to re-parse this as a statement
+                self.current -= 1; // Go back to the identifier
+                try self.parseStatement();
+            } else {
                 try self.parseStatement();
             }
         } else {

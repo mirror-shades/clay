@@ -54,6 +54,7 @@ pub const Lexer = struct {
             }
             self.advance();
         }
+        self.advance();
     }
 
     fn skipLine(self: *Lexer) void {
@@ -117,10 +118,8 @@ pub const Lexer = struct {
                 self.advance();
                 if (self.peek() == '*') {
                     self.skipMultiline();
-                    self.advance();
                 } else if (self.peek() == '/') {
                     self.skipLine();
-                    self.advance();
                 } else {
                     try self.tokens.append(.{
                         .kind = .TKN_SLASH,
@@ -128,8 +127,9 @@ pub const Lexer = struct {
                         .end = self.pos + 1,
                         .line = self.line,
                     });
+
+                    self.advance();
                 }
-                self.advance();
                 continue;
             }
 

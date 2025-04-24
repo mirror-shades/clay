@@ -84,7 +84,9 @@ fn printNode(node: *ast.Node, indent: usize) !void {
     if (node.value) |value| {
         switch (value) {
             .int => |i| print(" = {d}", .{i}),
+            .float => |f| print(" = {d}", .{f}),
             .string => |s| print(" = {s}", .{s}),
+            .bool => |b| print(" = {}", .{b}),
             else => {},
         }
     }
