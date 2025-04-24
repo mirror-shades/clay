@@ -1,0 +1,3 @@
+
+smallNest -> x : int = 42
+grabber : int = smallNest -> x

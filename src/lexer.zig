@@ -45,22 +45,9 @@ pub const Lexer = struct {
         }
     }
 
-    fn skipComment(self: *Lexer) void {
-        var multiline_comment = false;
-        if (self.peek() == '*') {
-            multiline_comment = true;
-        }
-
-        if (multiline_comment) {
-            self.skipMultiline();
-        } else {
-            self.skipLine();
-        }
-    }
-
     fn skipMultiline(self: *Lexer) void {
         while (self.peek()) |c| {
-            if (c == '*' and self.peekNext() == ';') {
+            if (c == '*' and self.peekNext() == '/') {
                 self.advance();
                 self.advance();
                 break;
@@ -100,35 +87,6 @@ pub const Lexer = struct {
         });
     }
 
-    fn readIdentifier(self: *Lexer) !void {
-        const start = self.pos;
-        while (self.peek()) |c| {
-            switch (c) {
-                'a'...'z', 'A'...'Z', '0'...'9', '_' => self.advance(),
-                else => break,
-            }
-        }
-
-        if (start != self.pos) { // Only add token if we actually read something
-            const keyword = token.keywords.get(self.input[start..self.pos]);
-            if (keyword) |k| {
-                try self.tokens.append(.{
-                    .kind = k,
-                    .start = start,
-                    .end = self.pos,
-                    .line = self.line,
-                });
-            } else {
-                try self.tokens.append(.{
-                    .kind = .TKN_IDENTIFIER,
-                    .start = start,
-                    .end = self.pos,
-                    .line = self.line,
-                });
-            }
-        }
-    }
-
     pub fn tokenize(self: *Lexer) !void {
         while (self.peek()) |c| {
 
@@ -155,25 +113,45 @@ pub const Lexer = struct {
                 continue;
             }
 
-            if (c == ';') {
+            if (c == '/') {
                 self.advance();
-                self.skipComment();
+                if (self.peek() == '*') {
+                    self.skipMultiline();
+                    self.advance();
+                } else if (self.peek() == '/') {
+                    self.skipLine();
+                    self.advance();
+                } else {
+                    try self.tokens.append(.{
+                        .kind = .TKN_SLASH,
+                        .start = self.pos,
+                        .end = self.pos + 1,
+                        .line = self.line,
+                    });
+                }
+                self.advance();
                 continue;
             }
 
             // Process actual tokens
             switch (c) {
                 ':' => {
-                    if (self.peek() == ':') {
-                        try self.tokens.append(.{
-                            .kind = .TKN_TYPE_ASSIGN,
-                            .start = self.pos,
-                            .end = self.pos + 1,
-                            .line = self.line,
-                        });
-                        self.advance();
-                        self.advance();
-                    }
+                    try self.tokens.append(.{
+                        .kind = .TKN_TYPE_ASSIGN,
+                        .start = self.pos,
+                        .end = self.pos + 1,
+                        .line = self.line,
+                    });
+                    self.advance();
+                },
+                '=' => {
+                    try self.tokens.append(.{
+                        .kind = .TKN_VALUE_ASSIGN,
+                        .start = self.pos,
+                        .end = self.pos + 1,
+                        .line = self.line,
+                    });
+                    self.advance();
                 },
                 '-' => {
                     if (self.pos + 1 < self.input.len and self.input[self.pos + 1] == '>') {
@@ -187,8 +165,74 @@ pub const Lexer = struct {
                         self.advance();
                     }
                 },
+                '(' => {
+                    try self.tokens.append(.{
+                        .kind = .TKN_LPAREN,
+                        .start = self.pos,
+                        .end = self.pos + 1,
+                        .line = self.line,
+                    });
+                    self.advance();
+                },
+                ')' => {
+                    try self.tokens.append(.{
+                        .kind = .TKN_RPAREN,
+                        .start = self.pos,
+                        .end = self.pos + 1,
+                        .line = self.line,
+                    });
+                    self.advance();
+                },
+                '{' => {
+                    try self.tokens.append(.{
+                        .kind = .TKN_LBRACE,
+                        .start = self.pos,
+                        .end = self.pos + 1,
+                        .line = self.line,
+                    });
+                    self.advance();
+                },
+                '}' => {
+                    try self.tokens.append(.{
+                        .kind = .TKN_RBRACE,
+                        .start = self.pos,
+                        .end = self.pos + 1,
+                        .line = self.line,
+                    });
+                    self.advance();
+                },
+                '[' => {
+                    try self.tokens.append(.{
+                        .kind = .TKN_LBRACKET,
+                        .start = self.pos,
+                        .end = self.pos + 1,
+                        .line = self.line,
+                    });
+                    self.advance();
+                },
+                ']' => {
+                    try self.tokens.append(.{
+                        .kind = .TKN_RBRACKET,
+                        .start = self.pos,
+                        .end = self.pos + 1,
+                        .line = self.line,
+                    });
+                    self.advance();
+                },
+                ',' => {
+                    try self.tokens.append(.{
+                        .kind = .TKN_COMMA,
+                        .start = self.pos,
+                        .end = self.pos + 1,
+                        .line = self.line,
+                    });
+                    self.advance();
+                },
                 '"' => try self.readString(),
-                'a'...'z', 'A'...'Z', '_' => try self.readIdentifier(),
+                'a'...'z', 'A'...'Z', '_' => {
+                    const word = try self.readWord();
+                    try self.makeWordToken(word);
+                },
                 '0'...'9' => try self.readNumber(),
                 else => {
                     return error.UnexpectedCharacter;
@@ -203,6 +247,39 @@ pub const Lexer = struct {
             .end = self.pos,
             .line = self.line,
         });
+    }
+
+    fn readWord(self: *Lexer) ![]const u8 {
+        const start = self.pos;
+        while (self.peek()) |c| {
+            switch (c) {
+                'a'...'z', 'A'...'Z', '0'...'9', '_' => self.advance(),
+                else => break,
+            }
+        }
+        return self.input[start..self.pos];
+    }
+
+    fn makeWordToken(self: *Lexer, word: []const u8) !void {
+        if (token.keywords.get(word)) |keyword_type| {
+            try self.tokens.append(.{
+                .kind = keyword_type,
+                .start = self.pos - word.len,
+                .end = self.pos,
+                .line = self.line,
+            });
+        } else {
+            try self.tokens.append(.{
+                .kind = .TKN_IDENTIFIER,
+                .start = self.pos - word.len,
+                .end = self.pos,
+                .line = self.line,
+            });
+        }
+    }
+
+    fn isKeyword(self: *Lexer) bool {
+        return token.keywords.get(self.input[self.pos..]) != null;
     }
 
     fn readString(self: *Lexer) !void {
