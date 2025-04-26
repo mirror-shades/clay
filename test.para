@@ -1,11 +1,5 @@
-// Define a person with properties
 person -> {
     age : int = 34
-    name : string = "Rob"
 }
 
-// this is the same as writing:
-// person -> age : int = 10
-// person -> name : string = "bob"
-x : int = person -> age
-y : string = person -> name
+x : int = age

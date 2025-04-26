@@ -163,7 +163,51 @@ pub const Lexer = struct {
                         });
                         self.advance();
                         self.advance();
+                    } else {
+                        try self.tokens.append(.{
+                            .kind = .TKN_MINUS,
+                            .start = self.pos,
+                            .end = self.pos + 1,
+                            .line = self.line,
+                        });
+                        self.advance();
                     }
+                },
+                '+' => {
+                    try self.tokens.append(.{
+                        .kind = .TKN_PLUS,
+                        .start = self.pos,
+                        .end = self.pos + 1,
+                        .line = self.line,
+                    });
+                    self.advance();
+                },
+                '^' => {
+                    try self.tokens.append(.{
+                        .kind = .TKN_POWER,
+                        .start = self.pos,
+                        .end = self.pos + 1,
+                        .line = self.line,
+                    });
+                    self.advance();
+                },
+                '%' => {
+                    try self.tokens.append(.{
+                        .kind = .TKN_PERCENT,
+                        .start = self.pos,
+                        .end = self.pos + 1,
+                        .line = self.line,
+                    });
+                    self.advance();
+                },
+                '*' => {
+                    try self.tokens.append(.{
+                        .kind = .TKN_STAR,
+                        .start = self.pos,
+                        .end = self.pos + 1,
+                        .line = self.line,
+                    });
+                    self.advance();
                 },
                 '(' => {
                     try self.tokens.append(.{
@@ -228,6 +272,7 @@ pub const Lexer = struct {
                     });
                     self.advance();
                 },
+
                 '"' => try self.readString(),
                 'a'...'z', 'A'...'Z', '_' => {
                     const word = try self.readWord();

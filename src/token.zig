@@ -29,6 +29,8 @@ pub const TokenKind = enum {
     TKN_STAR, // *
     TKN_PLUS, // +
     TKN_MINUS, // -
+    TKN_POWER, // ^
+    TKN_PERCENT, // %
     TKN_LPAREN, // (
     TKN_RPAREN, // )
     TKN_LBRACE, // {

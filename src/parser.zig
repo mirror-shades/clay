@@ -162,35 +162,41 @@ pub const Parser = struct {
     }
 
     fn resolveReference(self: *Parser, ref_name: []const u8) ParserError!token.Value {
-        // Check if the reference exists in the global scope
+        // Only allow access to variables that are:
+        // 1. In the current scope (directly)
+        // 2. In the global scope (directly under root)
+        // 3. NOT inside any groups unless accessed via arrow syntax
+
+        // First check if it's a global variable (directly under root)
         if (self.symbol_table.get(ref_name)) |node| {
-            // Only allow direct access to global variables, not groups
-            if (node.type == .Variable) {
+            if (node.type == .Variable and node.parent == self.root) {
                 if (node.value) |value| {
                     return value;
                 }
             }
         }
 
-        // Search up the parent chain starting from current parent
-        var current_node = self.current_parent;
-        // In Zig, we can't compare a non-optional pointer with null
-        // Instead, we keep going until we reach the root (which has no parent)
-        while (true) {
-            if (self.findNodeByName(current_node, ref_name)) |found_node| {
-                if (found_node.type == .Variable) {
-                    if (found_node.value) |value| {
-                        return value;
-                    }
-                }
+        // Then check current scope, but ONLY if we're not inside a group
+        var current = self.current_parent;
+        while (current != self.root) {
+            if (current.type == .Group) {
+                // We're inside a group, so don't allow direct access to variables
+                return ParserError.UndefinedReference;
             }
-
-            // If we're at a node with no parent or reached the root, stop
-            if (current_node.parent == null) break;
-            current_node = current_node.parent.?;
+            if (current.parent) |parent| {
+                current = parent;
+            } else break;
         }
 
-        // If we got here, the reference wasn't found or wasn't accessible
+        // Only if we're not in a group, check current scope
+        if (self.findNodeByName(self.current_parent, ref_name)) |found_node| {
+            if (found_node.type == .Variable) {
+                if (found_node.value) |value| {
+                    return value;
+                }
+            }
+        }
+
         return ParserError.UndefinedReference;
     }
 
@@ -312,44 +318,41 @@ pub const Parser = struct {
                         return ParserError.UndefinedReference;
                     }
                 } else {
-                    // Look for variable in current scope or parent scopes
-                    var current_node = self.current_parent;
-                    var found = false;
+                    // Direct reference - only allow if:
+                    // 1. It's a global variable (directly under root)
+                    // 2. It's in the current scope and we're not inside a group
 
-                    // Loop through parent chain
-                    while (!found) {
-                        if (self.findNodeByName(current_node, ref_name)) |found_node| {
-                            if (found_node.type == .Variable) {
-                                if (found_node.value) |value| {
-                                    final_value = value;
-                                    found = true;
-                                }
-                            }
-                        }
-
-                        // Exit the loop if we're at the root or a node with no parent
-                        if (current_node.parent == null) break;
-                        current_node = current_node.parent.?;
-                    }
-
-                    // Also check global scope in symbol table
-                    if (!found) {
-                        if (self.symbol_table.get(ref_name)) |found_node| {
-                            if (found_node.type == .Variable) {
-                                if (found_node.value) |value| {
-                                    final_value = value;
-                                    found = true;
-                                }
+                    // First check if it's a global variable
+                    if (self.symbol_table.get(ref_name)) |n| {
+                        if (n.type == .Variable and n.parent == self.root) {
+                            if (n.value) |value| {
+                                final_value = value;
                             }
                         }
                     }
 
-                    if (!found) {
-                        if (self.debug) {
-                            print("Variable not in scope: {s}\n", .{ref_name});
+                    // Check if we're inside a group
+                    var current = self.current_parent;
+                    while (current != self.root) {
+                        if (current.type == .Group) {
+                            // We're inside a group, so don't allow direct access to variables
+                            return ParserError.UndefinedReference;
                         }
-                        return ParserError.UndefinedReference;
+                        if (current.parent) |parent| {
+                            current = parent;
+                        } else break;
                     }
+
+                    // Only if we're not in a group, check current scope
+                    if (self.findNodeByName(self.current_parent, ref_name)) |found_node| {
+                        if (found_node.type == .Variable) {
+                            if (found_node.value) |value| {
+                                final_value = value;
+                            }
+                        }
+                    }
+
+                    return ParserError.UndefinedReference;
                 }
 
                 if (self.debug) {
