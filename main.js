@@ -280,6 +280,14 @@ function parse(tokens) {
   return parsedTokens;
 }
 
+function typeCheck(token) {
+  if (token.tokenType === TokenType.Value) {
+    if (token.valueType === ValueType.Integer) {
+      return "integer";
+    }
+  }
+}
+
 function createToken(value, type, valueType, lineNumber, tokenNumber) {
   return new Token(value, type, valueType, lineNumber, tokenNumber);
 }
@@ -307,7 +315,7 @@ function buildAssignmentArray(line, i) {
       nestedGroup.unshift(line[j - 1].value);
     }
   }
-  nestedGroup.push(line[i + 1].value);
+  nestedGroup.push(line[i + 1]);
   return nestedGroup;
 }
 
@@ -371,9 +379,8 @@ function interpret(parsedTokens) {
         ) {
           const lookupPath = buildLookupPathForward(line, i + 1);
           finalValue = getLookupValue(lookupPath);
+          groups[groups.length - 1] = finalValue; // Replace the token with the actual value
         }
-        // Replace the last element (the value) with our processed finalValue
-        groups[groups.length - 1] = finalValue;
         assignValue(groups); // groups is an array
       }
 
@@ -386,7 +393,17 @@ function interpret(parsedTokens) {
 
           // Get the value from the nested maps
           let result = getLookupValue(lookupPath);
-          printInspect(result);
+
+          // Check if the result is a token object
+          if (
+            result &&
+            typeof result === "object" &&
+            result.value !== undefined
+          ) {
+            printInspect(result.value);
+          } else {
+            printInspect(result);
+          }
         }
       }
     }
@@ -448,6 +465,10 @@ function buildLookupPathBackward(line, i) {
 }
 
 function getLookupValue(lookupPath) {
+  /***
+   * this function will return the value and the type of the lookup path
+   */
+
   // The last element is the identifier to look up
   const identifier = lookupPath.pop();
 
@@ -456,7 +477,8 @@ function getLookupValue(lookupPath) {
 
   // If there are no groups, look up directly in the top-level variables
   if (groups.length === 0) {
-    return variables.get(identifier);
+    const result = variables.get(identifier);
+    return result;
   }
 
   // Handle nested groups
@@ -476,7 +498,8 @@ function getLookupValue(lookupPath) {
   }
 
   // Get the value from the deepest map
-  return currentMap.get(identifier);
+  const result = currentMap.get(identifier);
+  return result;
 }
 
 function main() {
