@@ -17,3 +17,5 @@ employee -> person -> working ?
 
 y = employee -> person -> salary
 y ?
+
+5 ?

@@ -2,10 +2,17 @@ const fs = require("fs");
 
 // this helps track which print statements are being used for what
 const printDebug = (...args) => console.log("DEBUG: ", ...args);
-const printInspect = (...args) => console.log("INSPECT: ", ...args);
 const printError = (...args) => console.log("ERROR: ", ...args);
 
 let variables = new Map();
+
+// Create a class to hold both value and type
+class TypedValue {
+  constructor(value, valueType) {
+    this.value = value;
+    this.type = valueType;
+  }
+}
 
 class Token {
   /***
@@ -152,7 +159,10 @@ function parse(tokens) {
 
     // catch newlines and operators
     if (activeToken === "\n") {
-      parsedTokens.push(currentLine);
+      if (currentLine.length > 0) {
+        // Only push non-empty lines
+        parsedTokens.push(currentLine);
+      }
       currentLine = [];
       lineNumber++;
       tokenNumber = 1;
@@ -280,11 +290,9 @@ function parse(tokens) {
   return parsedTokens;
 }
 
-function typeCheck(token) {
-  if (token.tokenType === TokenType.Value) {
-    if (token.valueType === ValueType.Integer) {
-      return "integer";
-    }
+function typeCheck(tokens) {
+  for (let token of tokens) {
+    printDebug(token);
   }
 }
 
@@ -319,96 +327,111 @@ function buildAssignmentArray(line, i) {
   return nestedGroup;
 }
 
+// Modify assignValue to store typed values
 function assignValue(assignmentArray) {
-  // The last element is the value to assign
   const value = assignmentArray.pop();
-
-  // The second-to-last element is the identifier
   const identifier = assignmentArray.pop();
 
-  // If there are no groups, assign directly to the identifier
+  // Create a TypedValue based on the token's type
+  let typedValue;
+  if (value.tokenType === TokenType.Value) {
+    // Direct value assignment
+    const actualValue = isNumber(value.value)
+      ? Number(value.value)
+      : value.value;
+    typedValue = new TypedValue(actualValue, value.valueType);
+  } else if (value instanceof TypedValue) {
+    // Value from a lookup - already a TypedValue
+    typedValue = value;
+  } else {
+    // Fallback case - shouldn't normally happen
+    typedValue = new TypedValue(value, inferType(value));
+  }
+
   if (assignmentArray.length === 0) {
-    variables.set(identifier, value);
+    variables.set(identifier, typedValue);
     return;
   }
 
-  // The remaining elements are groups that need to be nested
-  const assignmentGroups = assignmentArray;
-
-  // Handle nested groups
   let currentMap = variables;
-
-  // Navigate through the group hierarchy, creating maps as needed
-  for (let i = 0; i < assignmentGroups.length; i++) {
-    const groupToAssign = assignmentGroups[i];
-
-    // If the group doesn't exist yet, create it as a new Map
-    if (
-      !currentMap.has(groupToAssign) ||
-      !(currentMap.get(groupToAssign) instanceof Map)
-    ) {
-      currentMap.set(groupToAssign, new Map());
+  for (const group of assignmentArray) {
+    if (!currentMap.has(group)) {
+      currentMap.set(group, new Map());
     }
-
-    // Move to the next level of nesting
-    currentMap = currentMap.get(groupToAssign);
+    currentMap = currentMap.get(group);
   }
+  currentMap.set(identifier, typedValue);
+}
 
-  // Set the value in the deepest map
-  currentMap.set(identifier, value);
+// Helper function to infer types for non-token values
+function inferType(value) {
+  if (typeof value === "string") return ValueType.String;
+  if (Number.isInteger(value)) return ValueType.Integer;
+  if (typeof value === "number") return ValueType.Float;
+  if (typeof value === "boolean") return ValueType.Boolean;
+  return ValueType.Nothing;
 }
 
 function interpret(parsedTokens) {
-  for (let line of parsedTokens) {
-    for (let i = 0; i < line.length; i++) {
-      let currentToken = line[i];
-      let nextToken = line[i + 1];
-      let previousToken = line[i - 1];
+  for (let lineNumber = 0; lineNumber < parsedTokens.length; lineNumber++) {
+    const line = parsedTokens[lineNumber];
+
+    for (let tokenNumber = 0; tokenNumber < line.length; tokenNumber++) {
+      let currentToken = line[tokenNumber];
+      let nextToken = line[tokenNumber + 1];
+      let previousToken = line[tokenNumber - 1];
+
       if (currentToken.tokenType === TokenType.Assignment) {
-        // assignments
-        let groups = buildAssignmentArray(line, i);
+        let groups = buildAssignmentArray(line, tokenNumber);
         let finalValue = undefined;
+
         if (nextToken.tokenType === TokenType.Value) {
           // Convert numeric strings to actual numbers
-          finalValue = isNumber(nextToken.value)
+          const value = isNumber(nextToken.value)
             ? Number(nextToken.value)
             : nextToken.value;
+          finalValue = new TypedValue(value, nextToken.valueType);
         } else if (
           nextToken.tokenType === TokenType.Lookup ||
           nextToken.tokenType === TokenType.Group
         ) {
-          const lookupPath = buildLookupPathForward(line, i + 1);
+          const lookupPath = buildLookupPathForward(line, tokenNumber + 1);
           finalValue = getLookupValue(lookupPath);
-          groups[groups.length - 1] = finalValue; // Replace the token with the actual value
+          groups[groups.length - 1] = finalValue;
         }
-        assignValue(groups); // groups is an array
+        assignValue(groups);
       }
 
       if (currentToken.tokenType === TokenType.Inspect) {
-        if (previousToken.tokenType === TokenType.Value) {
-          printInspect(previousToken.value);
-        } else if (previousToken.tokenType === TokenType.Lookup) {
-          // Build a lookup path similar to how we build assignment arrays
-          let lookupPath = buildLookupPathBackward(line, i);
-
-          // Get the value from the nested maps
-          let result = getLookupValue(lookupPath);
-
-          // Check if the result is a token object
-          if (
-            result &&
-            typeof result === "object" &&
-            result.value !== undefined
-          ) {
-            printInspect(result.value);
-          } else {
-            printInspect(result);
-          }
+        const lookupPath = buildLookupPathBackward(line, tokenNumber);
+        const fullPath = lookupPath.join("->");
+        const result = getLookupValue([...lookupPath]);
+        let type = "undefined";
+        let value = "undefined";
+        if (result) {
+          type = result.type;
+          value = result.value;
         }
+        if (previousToken.tokenType === TokenType.Value) {
+          type = previousToken.valueType;
+          value = previousToken.value;
+        }
+        printInspect(
+          `[${currentToken.lineNumber}:${currentToken.tokenNumber}]`,
+          fullPath || "undefined",
+          "::",
+          type,
+          "=",
+          value
+        );
       }
     }
   }
 }
+
+const printInspect = (...args) => {
+  console.log(...args);
+};
 
 function buildLookupPathForward(line, startIndex) {
   /**
@@ -441,12 +464,6 @@ function buildLookupPathForward(line, startIndex) {
 }
 
 function buildLookupPathBackward(line, i) {
-  /**
-   * Makes a list of groups and the identifier to look up
-   * For backward traversal (used in inspections)
-   * The last element in the array is the identifier
-   * The elements before the identifier are groups in reverse order
-   */
   let path = [];
 
   // Start by capturing the identifier being looked up
@@ -457,7 +474,24 @@ function buildLookupPathBackward(line, i) {
   // Work backwards to capture groups connected by arrows
   for (let j = i - 2; j >= 0; j--) {
     if (line[j].tokenType === TokenType.Arrow) {
-      path.unshift(line[j - 1].value);
+      if (
+        line[j - 1].tokenType === TokenType.Group ||
+        line[j - 1].tokenType === TokenType.Lookup
+      ) {
+        path.unshift(line[j - 1].value);
+      }
+    }
+  }
+
+  // If path has only one element (just the identifier) or is empty
+  if (path.length <= 1 && line[i - 1]) {
+    path = [line[i - 1].value];
+  }
+
+  // Make sure the last element (identifier) is included
+  if (line[i - 1] && line[i - 1].tokenType === TokenType.Lookup) {
+    if (path[path.length - 1] !== line[i - 1].value) {
+      path.push(line[i - 1].value);
     }
   }
 
@@ -465,40 +499,30 @@ function buildLookupPathBackward(line, i) {
 }
 
 function getLookupValue(lookupPath) {
-  /***
-   * this function will return the value and the type of the lookup path
-   */
-
-  // The last element is the identifier to look up
   const identifier = lookupPath.pop();
-
-  // The remaining elements are groups that need to be traversed
   const groups = lookupPath;
 
-  // If there are no groups, look up directly in the top-level variables
   if (groups.length === 0) {
     const result = variables.get(identifier);
+    if (result instanceof TypedValue) {
+      return result;
+    }
     return result;
   }
 
-  // Handle nested groups
   let currentMap = variables;
-
-  // Navigate through the group hierarchy
   for (let i = 0; i < groups.length; i++) {
     const group = groups[i];
-
-    // If the group doesn't exist, return undefined
     if (!currentMap.has(group) || !(currentMap.get(group) instanceof Map)) {
       return undefined;
     }
-
-    // Move to the next level of nesting
     currentMap = currentMap.get(group);
   }
 
-  // Get the value from the deepest map
   const result = currentMap.get(identifier);
+  if (result instanceof TypedValue) {
+    return result;
+  }
   return result;
 }
 
@@ -528,6 +552,8 @@ function main() {
   if (debug) printDebug(tokens);
   let parsedTokens = parse(tokens);
   if (debug) printDebug(parsedTokens);
+  //   let typeCheckedTokens = typeCheck(parsedTokens);
+  //   if (debug) printDebug(typeCheckedTokens);
   interpret(parsedTokens);
 }
 

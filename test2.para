@@ -1,5 +1,5 @@
-bigNest -> littleNest -> name = 42
+employee -> person -> age = 50
 
-x = bigNest -> littleNest -> name
-
-x ?
+employee -> person -> age ?
+y = employee -> person -> age
+y ?
