@@ -1,12 +1,19 @@
-employee -> person -> age = 5
+employee -> person -> age = 50
+employee -> person -> salary = 50000.00
+employee -> person -> name = "Bob"
+employee -> person -> working = true
+
+
 age = 10
 age = 15
-employee -> person -> age = 100
+
+employee -> person -> age = 51
+
 employee -> person -> age ?
-age ?
+employee -> person -> salary ?
+employee -> person -> name ?
+employee -> person -> working ?
 
-cat -> x = 5
-cat -> x ?
 
-y = cat -> x
+y = employee -> person -> salary
 y ?

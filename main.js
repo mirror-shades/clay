@@ -50,7 +50,7 @@ function isNumber(value) {
 }
 
 function isFloat(value) {
-  return /^-?\d+(\.\d+)?$/.test(value);
+  return /^-?\d+\.\d+$/.test(value);
 }
 
 function isValidIdentifier(value) {
@@ -186,7 +186,9 @@ function parse(tokens) {
       newToken = createToken(
         activeToken,
         TokenType.Assignment,
-        ValueType.Nothing
+        ValueType.Nothing,
+        lineNumber,
+        tokenNumber
       );
       currentLine.push(newToken);
       tokenNumber++;
@@ -218,19 +220,29 @@ function parse(tokens) {
       else if (isValidString(activeToken))
         newToken = createToken(
           activeToken,
-          TokenType.String,
+          TokenType.Value,
           ValueType.String,
           lineNumber,
           tokenNumber
         );
       else if (isValidIdentifier(activeToken))
-        newToken = createToken(
-          activeToken,
-          TokenType.Lookup,
-          ValueType.Nothing,
-          lineNumber,
-          tokenNumber
-        );
+        if (activeToken === "true" || activeToken === "false") {
+          newToken = createToken(
+            activeToken,
+            TokenType.Value,
+            ValueType.Boolean,
+            lineNumber,
+            tokenNumber
+          );
+        } else {
+          newToken = createToken(
+            activeToken,
+            TokenType.Lookup,
+            ValueType.Nothing,
+            lineNumber,
+            tokenNumber
+          );
+        }
       else {
         printError("Invalid value at ", activeToken);
         throw new Error("Invalid value");
