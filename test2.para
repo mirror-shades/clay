@@ -1,10 +1,5 @@
-person -> {
-    age : int = 34
-}
+bigNest -> littleNest -> name = 42
 
-// This should fail with the fixed parser
-// because 'age' shouldn't be accessible directly
-//x : int = age
+x = bigNest -> littleNest -> name
 
-// This should work with the fixed parser
-y : int = age 
+x ?

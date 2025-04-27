@@ -1,0 +1,12 @@
+employee -> person -> age = 5
+age = 10
+age = 15
+employee -> person -> age = 100
+employee -> person -> age ?
+age ?
+
+cat -> x = 5
+cat -> x ?
+
+y = cat -> x
+y ?

@@ -106,6 +106,10 @@ pub const Parser = struct {
                         self.advance();
                     }
                 },
+                .TKN_ARROW => {
+                    // Skip arrow tokens in the main loop as they are handled in parseGroup
+                    self.advance();
+                },
                 else => return ParserError.UnexpectedToken,
             }
         }
@@ -278,46 +282,22 @@ pub const Parser = struct {
                 self.advance();
             },
             .TKN_IDENTIFIER => {
-                const ref_name = try self.consume(.TKN_IDENTIFIER);
-                if (self.debug) {
-                    print("Reference to: {s}\n", .{ref_name});
-                }
+                // Look ahead to see if this is a nested reference
+                const peek_ahead = self.peek() orelse return ParserError.UnexpectedEOF;
 
-                // Check if this is a nested reference
-                const next = self.peek() orelse return ParserError.UnexpectedEOF;
-                if (next.kind == .TKN_ARROW) {
-                    // This is a nested reference to a group member
-                    const group_node = self.symbol_table.get(ref_name) orelse return ParserError.UndefinedReference;
-                    if (group_node.type != .Group) {
-                        return ParserError.UnexpectedToken; // Can't use -> on non-group
-                    }
-
-                    self.advance(); // consume ->
-                    const child_name = try self.consume(.TKN_IDENTIFIER);
-
+                if (peek_ahead.kind == .TKN_ARROW) {
+                    // This is a nested reference chain (e.g., group1 -> group2 -> var)
+                    final_value = try self.resolveNestedReference();
                     if (self.debug) {
-                        print("Looking for child: {s} in group: {s}\n", .{ child_name, ref_name });
-                    }
-
-                    // Find the child in the group's children
-                    const child_node = self.findNodeByName(group_node, child_name) orelse return ParserError.UndefinedReference;
-
-                    if (self.debug) {
-                        print("Found child: {s} of type: {any}\n", .{ child_name, child_node.type });
-                    }
-
-                    if (child_node.value) |value| {
-                        if (self.debug) {
-                            print("Child value: {any}\n", .{value});
-                        }
-                        final_value = value;
-                    } else {
-                        if (self.debug) {
-                            print("Child has no value\n", .{});
-                        }
-                        return ParserError.UndefinedReference;
+                        print("Resolved nested reference to value: {any}\n", .{final_value});
                     }
                 } else {
+                    // This is a direct reference
+                    const ref_name = try self.consume(.TKN_IDENTIFIER);
+                    if (self.debug) {
+                        print("Direct reference to: {s}\n", .{ref_name});
+                    }
+
                     // Direct reference - only allow if:
                     // 1. It's a global variable (directly under root)
                     // 2. It's in the current scope and we're not inside a group
@@ -352,11 +332,9 @@ pub const Parser = struct {
                         }
                     }
 
-                    return ParserError.UndefinedReference;
-                }
-
-                if (self.debug) {
-                    print("Resolved value: {any}\n", .{final_value});
+                    if (std.meta.eql(final_value, undefined)) {
+                        return ParserError.UndefinedReference;
+                    }
                 }
             },
             else => return ParserError.UnexpectedToken,
@@ -409,7 +387,14 @@ pub const Parser = struct {
 
         // Handle nested statements or scope
         const next = self.peek() orelse return ParserError.UnexpectedEOF;
-        if (next.kind == .TKN_LBRACE) {
+
+        // Check if this is a nested group declaration (e.g., bigNest -> littleNest)
+        if (next.kind == .TKN_ARROW) {
+            self.advance(); // consume ->
+            const nested_name = try self.consume(.TKN_IDENTIFIER);
+            try self.parseGroup(nested_name);
+            return; // Return after handling nested group
+        } else if (next.kind == .TKN_LBRACE) {
             self.advance(); // consume {
             while (self.current < self.tokens.len) {
                 const tkn = self.tokens[self.current];
@@ -476,14 +461,63 @@ pub const Parser = struct {
                 // We need to back up the current counter to re-parse this as a statement
                 self.current -= 1; // Go back to the identifier
                 try self.parseStatement();
-            } else {
-                try self.parseStatement();
             }
-        } else {
-            try self.parseStatement();
         }
 
         // Restore the previous parent
         self.current_parent = previous_parent;
+    }
+
+    fn resolveNestedReference(self: *Parser) ParserError!token.Value {
+        // Get the first identifier (group or variable name)
+        const first_name = try self.consume(.TKN_IDENTIFIER);
+        if (self.debug) {
+            print("Starting nested reference resolution with: {s}\n", .{first_name});
+        }
+
+        var current_node = self.symbol_table.get(first_name) orelse return ParserError.UndefinedReference;
+
+        // Keep following the arrow chain
+        while (true) {
+            const next = self.peek() orelse return ParserError.UnexpectedEOF;
+            if (next.kind != .TKN_ARROW) {
+                // If we're at a variable, return its value
+                if (current_node.type == .Variable) {
+                    if (current_node.value) |value| {
+                        return value;
+                    }
+                }
+                return ParserError.UndefinedReference;
+            }
+
+            self.advance(); // consume ->
+            const child_name = try self.consume(.TKN_IDENTIFIER);
+            if (self.debug) {
+                print("Following reference to: {s}\n", .{child_name});
+            }
+
+            // Find the child in the current node's children
+            const child_node = self.findNodeByName(current_node, child_name) orelse return ParserError.UndefinedReference;
+            current_node = child_node;
+
+            // If this is the last item in the chain and it's a variable, return its value
+            const peek_next = self.peek() orelse {
+                if (child_node.type == .Variable) {
+                    if (child_node.value) |value| {
+                        return value;
+                    }
+                }
+                return ParserError.UndefinedReference;
+            };
+
+            if (peek_next.kind != .TKN_ARROW) {
+                if (child_node.type == .Variable) {
+                    if (child_node.value) |value| {
+                        return value;
+                    }
+                }
+                return ParserError.UndefinedReference;
+            }
+        }
     }
 };
