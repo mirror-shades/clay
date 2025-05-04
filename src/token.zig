@@ -5,9 +5,17 @@ pub const ValueType = enum {
     float,
     string,
     bool,
-    time,
-    array,
-    null,
+    nothing,
+
+    pub fn toString(self: ValueType) []const u8 {
+        return switch (self) {
+            .int => "int",
+            .float => "float",
+            .string => "string",
+            .bool => "bool",
+            .nothing => "nothing",
+        };
+    }
 };
 
 pub const Value = union(ValueType) {
@@ -15,8 +23,6 @@ pub const Value = union(ValueType) {
     float: f64,
     string: []const u8,
     bool: bool,
-    time: i64,
-    array: []const Value,
     null: void,
 };
 
@@ -39,40 +45,56 @@ pub const TokenKind = enum {
     TKN_RBRACKET, // ]
     TKN_COMMA, // ,
     TKN_CONST, // const
-    TKN_TYPE_INT, // int
-    TKN_TYPE_FLOAT, // float
-    TKN_TYPE_STRING, // string
-    TKN_TYPE_BOOL, // bool
-    TKN_TYPE_TIME, // time
-    TKN_TYPE_ARRAY, // array
-    TKN_VALUE_INT, // 123
-    TKN_VALUE_FLOAT, // 123.45
-    TKN_VALUE_STRING, //"hello"
-    TKN_VALUE_BOOL, // true/false
-    TKN_VALUE_TIME, // ISO timestamp
-    TKN_VALUE_NULL, // null
-    TKN_VALUE_ARRAY, // [1, 2, 3]
+    TKN_VALUE, // value
+    TKN_TYPE,
     TKN_NEWLINE, // \n
+    TKN_INSPECT, // ?
     TKN_EOF, // end of file
+
+    pub fn toString(self: TokenKind) []const u8 {
+        return switch (self) {
+            .TKN_IDENTIFIER => "TKN_IDENTIFIER",
+            .TKN_NEWLINE => "TKN_NEWLINE",
+            .TKN_EOF => "TKN_EOF",
+            .TKN_ARROW => "TKN_ARROW",
+            .TKN_VALUE_ASSIGN => "TKN_VALUE_ASSIGN",
+            .TKN_TYPE_ASSIGN => "TKN_TYPE_ASSIGN",
+            .TKN_SLASH => "TKN_SLASH",
+            .TKN_STAR => "TKN_STAR",
+            .TKN_PLUS => "TKN_PLUS",
+            .TKN_MINUS => "TKN_MINUS",
+            .TKN_POWER => "TKN_POWER",
+            .TKN_PERCENT => "TKN_PERCENT",
+            .TKN_LPAREN => "TKN_LPAREN",
+            .TKN_RPAREN => "TKN_RPAREN",
+            .TKN_LBRACE => "TKN_LBRACE",
+            .TKN_RBRACE => "TKN_RBRACE",
+            .TKN_LBRACKET => "TKN_LBRACKET",
+            .TKN_RBRACKET => "TKN_RBRACKET",
+            .TKN_COMMA => "TKN_COMMA",
+            .TKN_CONST => "TKN_CONST",
+            .TKN_TYPE => "TKN_TYPE",
+            .TKN_VALUE => "TKN_VALUE",
+            .TKN_INSPECT => "TKN_INSPECT",
+        };
+    }
 };
 
 pub const Token = struct {
-    kind: TokenKind,
-    start: usize,
-    end: usize,
-    line: usize,
+    literal: []const u8,
+    token_type: TokenKind,
+    value_type: ValueType,
+    line_number: usize,
+    token_number: usize,
 };
 
-pub const keywords = std.StaticStringMap(TokenKind).initComptime(.{
-    .{ "int", .TKN_TYPE_INT },
-    .{ "float", .TKN_TYPE_FLOAT },
-    .{ "string", .TKN_TYPE_STRING },
-    .{ "bool", .TKN_TYPE_BOOL },
-    .{ "time", .TKN_TYPE_TIME },
-    .{ "array", .TKN_TYPE_ARRAY },
-    .{ "true", .TKN_VALUE_BOOL },
-    .{ "false", .TKN_VALUE_BOOL },
-    .{ "null", .TKN_VALUE_NULL },
-    .{ "array", .TKN_VALUE_ARRAY },
-    .{ "const", .TKN_CONST },
-});
+pub fn makeToken(literal: []const u8, token_type: TokenKind, value_type: ValueType, line_number: usize, token_number: usize, start_pos: usize) Token {
+    return Token{
+        .literal = literal,
+        .token_type = token_type,
+        .value_type = value_type,
+        .line_number = line_number,
+        .token_number = token_number,
+        .start_pos = start_pos,
+    };
+}

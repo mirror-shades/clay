@@ -1,9 +1,9 @@
 const std = @import("std");
-const print = std.debug.print;
-const parser = @import("parser.zig");
+const debugPrint = std.debug.print;
 const lexer = @import("lexer.zig");
 const token = @import("token.zig");
 const Lexer = @import("lexer.zig").Lexer;
+const Parser = @import("parser.zig").Parser;
 const ast = @import("ast.zig");
 
 fn getDisplayText(token_kind: token.TokenKind, token_text: []const u8) []const u8 {
@@ -44,53 +44,43 @@ pub fn main() !void {
     const contents = try file.readToEndAlloc(allocator, 1024 * 1024);
     defer allocator.free(contents);
 
-    var para_lexer = Lexer.init(allocator, contents);
+    var para_lexer = try Lexer.init(allocator, contents);
     defer para_lexer.deinit();
 
     try para_lexer.tokenize();
 
     if (debug) {
-        print("Successfully tokenized file: {s}\n", .{filename});
-        for (para_lexer.tokens.items) |t| {
-            const token_text = contents[t.start..t.end];
-            const display_text = getDisplayText(t.kind, token_text);
-            print("Token: {s} (kind: {any}, line {d})\n", .{ display_text, t.kind, t.line });
-        }
+        debugPrint("Successfully tokenized file: {s}\n", .{filename});
+        para_lexer.dumpLexer();
     }
 
-    var para_parser = try parser.Parser.init(allocator, para_lexer.tokens.items, contents, debug);
+    var para_parser = Parser.init(para_lexer.tokens.items);
     defer para_parser.deinit();
 
     try para_parser.parse();
-
-    // After parsing, print the AST if debug is true
-    if (debug) {
-        print("\nParsed AST:\n", .{});
-        try printNode(para_parser.root, 0);
-    }
 }
 
 fn printNode(node: *ast.Node, indent: usize) !void {
     // Print indentation
     for (0..indent) |_| {
-        print("  ", .{});
+        debugPrint("  ", .{});
     }
 
     // Print node info
-    print("{s}: {s}", .{ @tagName(node.type), node.name });
+    debugPrint("{s}: {s}", .{ @tagName(node.type), node.name });
     if (node.is_const) {
-        print(" (const)", .{});
+        debugPrint(" (const)", .{});
     }
     if (node.value) |value| {
         switch (value) {
-            .int => |i| print(" = {d}", .{i}),
-            .float => |f| print(" = {d}", .{f}),
-            .string => |s| print(" = {s}", .{s}),
-            .bool => |b| print(" = {}", .{b}),
+            .int => |i| debugPrint(" = {d}", .{i}),
+            .float => |f| debugPrint(" = {d}", .{f}),
+            .string => |s| debugPrint(" = {s}", .{s}),
+            .bool => |b| debugPrint(" = {}", .{b}),
             else => {},
         }
     }
-    print("\n", .{});
+    debugPrint("\n", .{});
 
     // Print children with increased indentation
     if (node.children) |children| {

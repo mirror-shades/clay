@@ -1,5 +1,1 @@
-person -> {
-    age : int = 34
-}
-
-x : int = age
+x: int = 5.0?

@@ -1,5 +1,2 @@
-employee -> person -> age = 50
-
-employee -> person -> age ?
-y = employee -> person -> age
-y ?
+x = 50.0
+x?
