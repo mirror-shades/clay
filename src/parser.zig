@@ -31,7 +31,13 @@ pub const Parser = struct {
             switch (current_token.token_type) {
                 .TKN_INSPECT => {
                     const value = self.tokens[current_index - 2];
-                    printInspect("[{d}:{d}] {s} = {s}\n", .{ value.line_number, value.token_number, value.value_type.toString(), value.literal });
+
+                    const type_str = if (value.value_type == .nothing)
+                        value.token_type.toString()
+                    else
+                        value.value_type.toString();
+
+                    printInspect("[{d}:{d}] {s} = {s}\n", .{ value.line_number, value.token_number, type_str, value.literal });
                 },
                 else => continue,
             }

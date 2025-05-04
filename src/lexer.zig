@@ -191,67 +191,35 @@ pub const Lexer = struct {
                 continue;
             }
 
-            if (c == 'i') {
+            if (c == 'i' or c == 's' or c == 'b' or c == 'f') {
                 const current_column = self.column;
                 const word = try self.readWord();
-                if (std.mem.eql(u8, word, "int")) {
-                    try self.tokens.append(.{
-                        .literal = "int",
-                        .token_type = .TKN_TYPE,
-                        .value_type = .nothing,
-                        .line_number = self.line,
-                        .token_number = current_column,
-                    });
-                    self.token_count += 1;
-                }
-                continue;
-            }
 
-            if (c == 'f') {
-                const current_column = self.column;
-                const word = try self.readWord();
-                if (std.mem.eql(u8, word, "float")) {
-                    try self.tokens.append(.{
-                        .literal = "float",
-                        .token_type = .TKN_TYPE,
-                        .value_type = .nothing,
-                        .line_number = self.line,
-                        .token_number = current_column,
-                    });
-                    self.token_count += 1;
-                }
-                continue;
-            }
+                const is_type_word =
+                    (c == 'i' and std.mem.eql(u8, word, "int")) or
+                    (c == 'f' and std.mem.eql(u8, word, "float")) or
+                    (c == 's' and std.mem.eql(u8, word, "string")) or
+                    (c == 'b' and std.mem.eql(u8, word, "bool"));
 
-            if (c == 's') {
-                const current_column = self.column;
-                const word = try self.readWord();
-                if (std.mem.eql(u8, word, "string")) {
+                if (is_type_word) {
                     try self.tokens.append(.{
-                        .literal = "string",
+                        .literal = word,
                         .token_type = .TKN_TYPE,
                         .value_type = .nothing,
                         .line_number = self.line,
                         .token_number = current_column,
                     });
-                    self.token_count += 1;
+                } else {
+                    try self.tokens.append(.{
+                        .literal = word,
+                        .token_type = .TKN_IDENTIFIER,
+                        .value_type = .nothing,
+                        .line_number = self.line,
+                        .token_number = current_column,
+                    });
                 }
-                continue;
-            }
 
-            if (c == 'b') {
-                const current_column = self.column;
-                const word = try self.readWord();
-                if (std.mem.eql(u8, word, "bool")) {
-                    try self.tokens.append(.{
-                        .literal = "bool",
-                        .token_type = .TKN_TYPE,
-                        .value_type = .nothing,
-                        .line_number = self.line,
-                        .token_number = current_column,
-                    });
-                    self.token_count += 1;
-                }
+                self.token_count += 1;
                 continue;
             }
 
