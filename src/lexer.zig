@@ -191,7 +191,7 @@ pub const Lexer = struct {
                 continue;
             }
 
-            if (c == 'i' or c == 's' or c == 'b' or c == 'f') {
+            if (c == 'i' or c == 's' or c == 'b' or c == 'f' or c == 't' or c == 'f') {
                 const current_column = self.column;
                 const word = try self.readWord();
 
@@ -201,11 +201,23 @@ pub const Lexer = struct {
                     (c == 's' and std.mem.eql(u8, word, "string")) or
                     (c == 'b' and std.mem.eql(u8, word, "bool"));
 
+                const is_value_word =
+                    (c == 't' and std.mem.eql(u8, word, "true")) or
+                    (c == 'f' and std.mem.eql(u8, word, "false"));
+
                 if (is_type_word) {
                     try self.tokens.append(.{
                         .literal = word,
                         .token_type = .TKN_TYPE,
                         .value_type = .nothing,
+                        .line_number = self.line,
+                        .token_number = current_column,
+                    });
+                } else if (is_value_word) {
+                    try self.tokens.append(.{
+                        .literal = word,
+                        .token_type = .TKN_VALUE,
+                        .value_type = .bool,
                         .line_number = self.line,
                         .token_number = current_column,
                     });

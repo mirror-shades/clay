@@ -1,7 +1,16 @@
-employee -> person -> age = 50
-employee -> person -> salary = 50000.00
-employee -> person -> name = "Bob"
-employee -> person -> working = true
+person -> age : int = 50
+person -> job -> title : string = "Painter"
+person -> job -> salary : float = 50000.00
+person -> name : string = "Bob"
+person -> working : bool = true
+
+person -> { 
+    age : int = 50
+    job -> { title : string = "Painter"
+        salary : float = 50000.00
+    } name : string = "Bob"
+    working : bool = true
+}
 
 
 age = 10
@@ -10,7 +19,8 @@ age = 15
 employee -> person -> age = 51
 
 employee -> person -> age ?
-employee -> person -> salary ?
+employee -> person -> job -> title ?
+employee -> person -> job -> salary ?
 employee -> person -> name ?
 employee -> person -> working ?
 

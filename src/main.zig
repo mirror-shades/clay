@@ -5,7 +5,7 @@ const token = @import("token.zig");
 const Lexer = @import("lexer.zig").Lexer;
 const Parser = @import("parser.zig").Parser;
 const ast = @import("ast.zig");
-
+const Preprocessor = @import("prepro.zig");
 fn getDisplayText(token_kind: token.TokenKind, token_text: []const u8) []const u8 {
     return switch (token_kind) {
         .TKN_NEWLINE => "\\n",
@@ -54,10 +54,12 @@ pub fn main() !void {
         para_lexer.dumpLexer();
     }
 
-    var para_parser = Parser.init(para_lexer.tokens.items);
+    var para_parser = Parser.init(allocator, para_lexer.tokens.items);
     defer para_parser.deinit();
 
     try para_parser.parse();
+
+    try Preprocessor.preprocess(para_parser.parsed_tokens.items);
 }
 
 fn printNode(node: *ast.Node, indent: usize) !void {

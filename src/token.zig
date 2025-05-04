@@ -23,7 +23,7 @@ pub const Value = union(ValueType) {
     float: f64,
     string: []const u8,
     bool: bool,
-    null: void,
+    nothing: void,
 };
 
 pub const TokenKind = enum {
@@ -46,7 +46,8 @@ pub const TokenKind = enum {
     TKN_COMMA, // ,
     TKN_CONST, // const
     TKN_VALUE, // value
-    TKN_TYPE,
+    TKN_TYPE, // type
+    TKN_GROUP, // group
     TKN_NEWLINE, // \n
     TKN_INSPECT, // ?
     TKN_EOF, // end of file
@@ -74,6 +75,7 @@ pub const TokenKind = enum {
             .TKN_COMMA => "TKN_COMMA",
             .TKN_CONST => "TKN_CONST",
             .TKN_TYPE => "TKN_TYPE",
+            .TKN_GROUP => "TKN_GROUP",
             .TKN_VALUE => "TKN_VALUE",
             .TKN_INSPECT => "TKN_INSPECT",
         };
