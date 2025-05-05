@@ -13,6 +13,7 @@ pub const Preprocessor = struct {
         name: []const u8,
         value: Value,
         type: ValueType,
+        mutable: bool,
     };
 
     pub const Scope = struct {
@@ -160,7 +161,6 @@ pub const Preprocessor = struct {
         defer result.deinit();
 
         // First, collect any groups (scopes) that come before the identifier
-
         // Scan backward from the assignment operator to find groups
         var i: isize = @intCast(index - 1);
         while (i >= 0) : (i -= 1) {
@@ -169,6 +169,7 @@ pub const Preprocessor = struct {
                     .name = tokens[@intCast(i)].literal,
                     .value = Value{ .nothing = {} },
                     .type = .nothing,
+                    .mutable = false,
                 });
             } else if (tokens[@intCast(i)].token_type == .TKN_NEWLINE or
                 tokens[@intCast(i)].token_type == .TKN_EOF)
@@ -190,30 +191,49 @@ pub const Preprocessor = struct {
             }
         }
 
-        // Look for the identifier after the last group
+        // Find the identifier by scanning the entire line up to assignment
         var identifier_found = false;
-        if (index > 0) {
-            const id_pos: isize = @intCast(index - 1);
 
-            if (tokens[@intCast(id_pos)].token_type == .TKN_IDENTIFIER) {
-                // Identifier directly before assignment
-                try result.append(Variable{
-                    .name = tokens[@intCast(id_pos)].literal,
-                    .value = Value{ .nothing = {} },
-                    .type = .nothing,
-                });
-                identifier_found = true;
-            } else if (id_pos > 0 and tokens[@intCast(id_pos)].token_type == .TKN_TYPE and
-                tokens[@intCast(id_pos - 1)].token_type == .TKN_IDENTIFIER)
-            {
-                // Handle pattern: identifier -> type -> assignment
-                try result.append(Variable{
-                    .name = tokens[@intCast(id_pos - 1)].literal,
-                    .value = Value{ .nothing = {} },
-                    .type = .nothing,
-                });
-                identifier_found = true;
+        // Find the start of the current line
+        var line_start: isize = 0;
+        i = @intCast(index - 1);
+        while (i >= 0) {
+            if (tokens[@intCast(i)].token_type == .TKN_NEWLINE) {
+                line_start = i + 1;
+                break;
             }
+            i -= 1;
+        }
+
+        // Scan forward from start of line to assignment looking for identifier
+        i = line_start;
+        var identifier_pos: isize = -1;
+        var is_mutable = false;
+
+        while (i < index) : (i += 1) {
+            if (tokens[@intCast(i)].token_type == .TKN_IDENTIFIER) {
+                identifier_pos = i;
+                // Check for muta tokens after the identifier
+                var j: isize = i + 1;
+                while (j < index) : (j += 1) {
+                    if (tokens[@intCast(j)].token_type == .TKN_MUTA) {
+                        is_mutable = true;
+                    }
+                    if (tokens[@intCast(j)].token_type == .TKN_VALUE_ASSIGN) {
+                        break;
+                    }
+                }
+            }
+        }
+
+        if (identifier_pos >= 0) {
+            try result.append(Variable{
+                .name = tokens[@intCast(identifier_pos)].literal,
+                .value = Value{ .nothing = {} },
+                .type = .nothing,
+                .mutable = is_mutable,
+            });
+            identifier_found = true;
         }
 
         if (!identifier_found) {
@@ -231,6 +251,7 @@ pub const Preprocessor = struct {
                 .name = "value",
                 .value = Value{ .int = 12 }, // Default value for expressions
                 .type = .int,
+                .mutable = false,
             });
             value_found = true;
         }
@@ -240,6 +261,7 @@ pub const Preprocessor = struct {
                 .name = "value", // This name doesn't matter as it will be treated as value
                 .value = tokens[index + 1].value,
                 .type = tokens[index + 1].value_type,
+                .mutable = false, // Default value for literals
             });
             value_found = true;
         }
@@ -285,15 +307,39 @@ pub const Preprocessor = struct {
         const value_item = assignment_array[assignment_array.len - 1];
         // Second to last is the identifier
         const identifier = assignment_array[assignment_array.len - 2].name;
+        // Extract mutability from the identifier
+        const is_mutable = assignment_array[assignment_array.len - 2].mutable;
         // Everything before the identifier is groups
         const groups = assignment_array[0 .. assignment_array.len - 2];
 
         if (groups.len == 0) {
             // Top-level assignment
+
+            // Check if variable already exists
+            if (self.root_scope.variables.contains(identifier)) {
+                const existing_var = self.root_scope.variables.get(identifier).?;
+
+                // If variable exists and is not mutable, return error
+                if (!existing_var.mutable) {
+                    printError("Error: Cannot reassign immutable variable '{s}'\n", .{identifier});
+                    return error.CannotReassignImmutableVariable;
+                }
+
+                // Update existing variable but keep its mutability status
+                var updated_var = existing_var;
+                updated_var.value = value_item.value;
+                updated_var.type = value_item.type;
+
+                try self.root_scope.variables.put(identifier, updated_var);
+                return;
+            }
+
+            // New variable assignment
             const variable = Variable{
                 .name = identifier,
                 .value = value_item.value,
                 .type = value_item.type,
+                .mutable = is_mutable,
             };
 
             try self.root_scope.variables.put(identifier, variable);
@@ -313,11 +359,31 @@ pub const Preprocessor = struct {
             current_scope = current_scope.nested_scopes.get(group.name).?;
         }
 
-        // Create/update the variable
+        // Check if variable already exists in this scope
+        if (current_scope.variables.contains(identifier)) {
+            const existing_var = current_scope.variables.get(identifier).?;
+
+            // If variable exists and is not mutable, return error
+            if (!existing_var.mutable) {
+                printError("Error: Cannot reassign immutable variable '{s}'\n", .{identifier});
+                return error.CannotReassignImmutableVariable;
+            }
+
+            // Update existing variable but keep its mutability status
+            var updated_var = existing_var;
+            updated_var.value = value_item.value;
+            updated_var.type = value_item.type;
+
+            try current_scope.variables.put(identifier, updated_var);
+            return;
+        }
+
+        // Create new variable
         const variable = Variable{
             .name = identifier,
             .value = value_item.value,
             .type = value_item.type,
+            .mutable = is_mutable,
         };
 
         try current_scope.variables.put(identifier, variable);
@@ -626,7 +692,7 @@ pub const Preprocessor = struct {
 
                             for (path, 0..) |part, idx| {
                                 if (idx > 0) {
-                                    try buffer.appendSlice("->");
+                                    try buffer.appendSlice("-> ");
                                 }
                                 try buffer.appendSlice(part);
                             }

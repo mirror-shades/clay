@@ -8,8 +8,6 @@ pub fn writeFlatFile(tokens: []ParsedToken) !void {
     var file = try std.fs.cwd().createFile("build/output.f.para", .{});
     defer file.close();
 
-    std.debug.print("Writing flat file\n", .{});
-
     var writer = file.writer();
     var new_line_needed: bool = false;
     for (tokens) |token| {
@@ -48,7 +46,7 @@ pub fn writeFlatFile(tokens: []ParsedToken) !void {
                     },
                 }
             },
-            .TKN_VALUE_ASSIGN, .TKN_INSPECT, .TKN_IDENTIFIER, .TKN_PLUS, .TKN_LOOKUP, .TKN_EXPRESSION, .TKN_MINUS, .TKN_STAR, .TKN_SLASH, .TKN_PERCENT, .TKN_POWER, .TKN_LPAREN, .TKN_RPAREN, .TKN_COMMA, .TKN_LBRACKET, .TKN_RBRACKET => {
+            .TKN_VALUE_ASSIGN, .TKN_MUTA, .TKN_TEMP, .TKN_INSPECT, .TKN_IDENTIFIER, .TKN_PLUS, .TKN_LOOKUP, .TKN_EXPRESSION, .TKN_MINUS, .TKN_STAR, .TKN_SLASH, .TKN_PERCENT, .TKN_POWER, .TKN_LPAREN, .TKN_RPAREN, .TKN_COMMA, .TKN_LBRACKET, .TKN_RBRACKET => {
                 try writer.print("{s} ", .{token.literal});
             },
             else => try writer.print("UNUSED TOKEN ENCOUNTERED:  {s} \n", .{token.literal}),

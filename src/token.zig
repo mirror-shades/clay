@@ -44,7 +44,8 @@ pub const TokenKind = enum {
     TKN_LBRACKET, // [
     TKN_RBRACKET, // ]
     TKN_COMMA, // ,
-    TKN_CONST, // const
+    TKN_TEMP, // temp
+    TKN_MUTA, // const
     TKN_VALUE, // value
     TKN_TYPE, // type
     TKN_GROUP, // group
@@ -76,7 +77,8 @@ pub const TokenKind = enum {
             .TKN_LBRACKET => "TKN_LBRACKET",
             .TKN_RBRACKET => "TKN_RBRACKET",
             .TKN_COMMA => "TKN_COMMA",
-            .TKN_CONST => "TKN_CONST",
+            .TKN_TEMP => "TKN_TEMP",
+            .TKN_MUTA => "TKN_MUTA",
             .TKN_TYPE => "TKN_TYPE",
             .TKN_GROUP => "TKN_GROUP",
             .TKN_VALUE => "TKN_VALUE",

@@ -1,5 +1,5 @@
-x :int = 2  
+x muta temp :int = 2  
 
-y :int = x * (4 + 2)
+x = 5
 
-y ?
+x?
