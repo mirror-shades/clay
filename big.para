@@ -1,8 +1,8 @@
-person -> age : int = 50
-person -> job -> title : string = "Painter"
-person -> job -> salary : float = 50000.00
-person -> name : string = "Bob"
-person -> working : bool = true
+person -> age muta : int = 50
+person -> job -> title muta : string = "Painter"
+person -> job -> salary muta : float = 50000.00
+person -> name muta : string = "Bob"
+person -> working muta : bool = true
 
 person -> { 
     age : int = 50
@@ -17,7 +17,7 @@ person -> : int {
     name : string = "Bob"
 }
 
-age = 10
+age muta = 10
 age = 15
 
 newSalary :int = 10000 * (4 + 3)

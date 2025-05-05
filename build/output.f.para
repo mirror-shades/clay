@@ -1,3 +1,25 @@
-x muta temp :int = 2 
-x = 5 
-x ? 
+person-> age muta :int = 50 
+person-> job-> title muta :string = "Painter" 
+person-> job-> salary muta :float = 50000 
+person-> name muta :string = "Bob" 
+person-> working muta :bool = TRUE 
+person-> age :int = 50 
+person-> job-> title :string = "Painter" 
+person-> job-> salary :float = 50000 
+person-> name :string = "Bob" 
+person-> working :bool = TRUE 
+person-> age :int = 50 
+person-> name :string = "Bob" 
+age muta = 10 
+age = 15 
+newSalary :int = Expression 10000 * ( 4 + 3 ) 
+person-> job-> salary = newSalary 
+person-> age = 51 
+person-> age ? 
+person-> job-> title ? 
+person-> job-> salary ? 
+person-> name ? 
+person-> working ? 
+y = person-> job-> salary 
+y ? 
+5 ? 
