@@ -50,6 +50,7 @@ pub const TokenKind = enum {
     TKN_GROUP, // group
     TKN_NEWLINE, // \n
     TKN_INSPECT, // ?
+    TKN_LOOKUP, //
     TKN_EOF, // end of file
 
     pub fn toString(self: TokenKind) []const u8 {
@@ -78,6 +79,7 @@ pub const TokenKind = enum {
             .TKN_GROUP => "TKN_GROUP",
             .TKN_VALUE => "TKN_VALUE",
             .TKN_INSPECT => "TKN_INSPECT",
+            .TKN_LOOKUP => "TKN_LOOKUP",
         };
     }
 };

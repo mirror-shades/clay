@@ -1,0 +1,7 @@
+age :int = 15 
+y :float = 50000 
+person-> working :bool = TRUE 
+person-> age :int = 51 
+person-> name :string = "Bob" 
+person-> job-> salary :float = 50000 
+person-> job-> title :string = "Painter" 

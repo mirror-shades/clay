@@ -12,20 +12,24 @@ person -> {
     working : bool = true
 }
 
+person -> : int {
+    age = 50
+    name : string = "Bob"
+}
 
 age = 10
 age = 15
 
-employee -> person -> age = 51
+person -> age = 51
 
-employee -> person -> age ?
-employee -> person -> job -> title ?
-employee -> person -> job -> salary ?
-employee -> person -> name ?
-employee -> person -> working ?
+person -> age ?
+person -> job -> title ?
+person -> job -> salary ?
+person -> name ?
+person -> working ?
 
 
-y = employee -> person -> salary
+y = person -> job -> salary
 y ?
 
 5 ?
