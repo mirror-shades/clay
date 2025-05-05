@@ -1,7 +1,4 @@
-age :int = 15 
-y :float = 50000 
-person-> working :bool = TRUE 
-person-> age :int = 51 
-person-> name :string = "Bob" 
-person-> job-> salary :float = 50000 
-person-> job-> title :string = "Painter" 
+x :int = 2 
+y :int = UNUSED TOKEN ENCOUNTERED:  Expression 
+* ( 4 + 2 ) 
+y ? 

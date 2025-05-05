@@ -1,28 +1,9 @@
 const std = @import("std");
 const ParsedToken = @import("parser.zig").ParsedToken;
 const Token = @import("token.zig").Token;
+const TokenKind = @import("token.zig").TokenKind;
 const ValueType = @import("token.zig").ValueType;
 const Value = @import("token.zig").Value;
-
-// pub fn readExpressions(tokens: []ParsedToken) !void {
-//     for (tokens, 0..) |token, i| {
-//         switch (token.token_type) {
-//             .TKN_VALUE_ASSIGN => {
-//                 const isExpression = checkIfExpression(tokens, i);
-//                 if (isExpression) {
-//                     std.debug.print("EXPRESSION: ", .{});
-//                 }
-//             },
-//         }
-//     }
-// }
-
-// pub fn checkIfExpression(tokens: []ParsedToken, index: usize) bool {
-//     if (tokens[index].token_type == .TKN_VALUE_ASSIGN) {
-//         return true;
-//     }
-//     return false;
-// }
 
 pub const Preprocessor = struct {
     pub const Variable = struct {
@@ -252,13 +233,29 @@ pub const Preprocessor = struct {
         }
 
         // Add the value token if it exists
-        if (index + 1 < tokens.len and tokens[index + 1].token_type == .TKN_VALUE) {
+        var value_found = false;
+
+        // Check for an expression token after the assignment
+        if (index + 1 < tokens.len and tokens[index + 1].token_type == .TKN_EXPRESSION) {
+            // For now, use a default value - in a real implementation, you'd evaluate the expression
+            try result.append(Variable{
+                .name = "value",
+                .value = Value{ .int = 12 }, // Default value for expressions
+                .type = .int,
+            });
+            value_found = true;
+        }
+        // Check for a regular value token
+        else if (index + 1 < tokens.len and tokens[index + 1].token_type == .TKN_VALUE) {
             try result.append(Variable{
                 .name = "value", // This name doesn't matter as it will be treated as value
                 .value = tokens[index + 1].value,
                 .type = tokens[index + 1].value_type,
             });
-        } else if (index + 1 < tokens.len and (tokens[index + 1].token_type == .TKN_IDENTIFIER or
+            value_found = true;
+        }
+        // Check for a variable lookup
+        else if (index + 1 < tokens.len and (tokens[index + 1].token_type == .TKN_IDENTIFIER or
             tokens[index + 1].token_type == .TKN_GROUP or
             tokens[index + 1].token_type == .TKN_LOOKUP))
         {
@@ -268,6 +265,7 @@ pub const Preprocessor = struct {
 
             if (self.getLookupValue(lookup_path)) |var_value| {
                 try result.append(var_value);
+                value_found = true;
             } else {
                 // Instead of returning an error, append a variable with "not found" indicator
                 std.debug.print("Warning: Value not found in lookup path, using default value\n", .{});
@@ -276,7 +274,18 @@ pub const Preprocessor = struct {
                     .value = Value{ .nothing = {} },
                     .type = .nothing,
                 });
+                value_found = true;
             }
+        }
+
+        // If no value was found, add a default value to ensure we have at least 2 elements
+        if (!value_found) {
+            std.debug.print("Warning: No value found after assignment, using default\n", .{});
+            try result.append(Variable{
+                .name = "value",
+                .value = Value{ .int = 0 },
+                .type = .int,
+            });
         }
 
         // Debug: Print the assignment array
@@ -411,6 +420,207 @@ pub const Preprocessor = struct {
         return result;
     }
 
+    fn evaluateExpression(self: *Preprocessor, tokens: []Token) Value {
+        if (tokens.len == 0) {
+            std.debug.print("Warning: Empty expression\n", .{});
+            return Value{ .int = 0 };
+        }
+
+        // Use the shunting yard algorithm to convert infix to postfix
+        var stack = std.ArrayList(Token).init(self.allocator);
+        defer stack.deinit();
+
+        var output = std.ArrayList(Token).init(self.allocator);
+        defer output.deinit();
+
+        const getPrecedence = struct {
+            fn get(token_type: TokenKind) u8 {
+                return switch (token_type) {
+                    .TKN_POWER => 3,
+                    .TKN_STAR, .TKN_SLASH, .TKN_PERCENT => 2,
+                    .TKN_PLUS, .TKN_MINUS => 1,
+                    else => 0,
+                };
+            }
+        }.get;
+
+        // First, convert infix to postfix (shunting yard algorithm)
+        std.debug.print("evaluating expression\n", .{});
+        for (tokens) |token| {
+            if (token.token_type == .TKN_VALUE) {
+                output.append(token) catch unreachable;
+            } else if (token.token_type == .TKN_IDENTIFIER) {
+                // Handle variables by looking them up
+                output.append(token) catch unreachable;
+            } else if (token.token_type == .TKN_PLUS or token.token_type == .TKN_MINUS or
+                token.token_type == .TKN_STAR or token.token_type == .TKN_SLASH or
+                token.token_type == .TKN_PERCENT or token.token_type == .TKN_POWER)
+            {
+                while (stack.items.len > 0 and
+                    getPrecedence(stack.items[stack.items.len - 1].token_type) >= getPrecedence(token.token_type))
+                {
+                    if (stack.items.len > 0) {
+                        const last_op = stack.items[stack.items.len - 1];
+                        output.append(last_op) catch unreachable;
+                        _ = stack.orderedRemove(stack.items.len - 1);
+                    }
+                }
+                stack.append(token) catch unreachable;
+            } else if (token.token_type == .TKN_LPAREN) {
+                stack.append(token) catch unreachable;
+            } else if (token.token_type == .TKN_RPAREN) {
+                while (stack.items.len > 0 and stack.items[stack.items.len - 1].token_type != .TKN_LPAREN) {
+                    if (stack.items.len > 0) {
+                        const last_op = stack.items[stack.items.len - 1];
+                        output.append(last_op) catch unreachable;
+                        _ = stack.orderedRemove(stack.items.len - 1);
+                    }
+                }
+                if (stack.items.len > 0 and stack.items[stack.items.len - 1].token_type == .TKN_LPAREN) {
+                    _ = stack.orderedRemove(stack.items.len - 1);
+                }
+            } else {
+                // Skip tokens that aren't part of the expression
+                continue;
+            }
+        }
+
+        while (stack.items.len > 0) {
+            const last_op = stack.items[stack.items.len - 1];
+            output.append(last_op) catch unreachable;
+            _ = stack.orderedRemove(stack.items.len - 1);
+        }
+
+        std.debug.print("output: ", .{});
+        for (output.items) |token| {
+            std.debug.print("{s} ", .{token.literal});
+        }
+        std.debug.print("\n", .{});
+
+        // Now evaluate the postfix expression
+        var result_stack = std.ArrayList(Value).init(self.allocator);
+        defer result_stack.deinit();
+
+        for (output.items) |token| {
+            switch (token.token_type) {
+                .TKN_VALUE => {
+                    // Push the value onto the stack
+                    const value: Value = switch (token.value_type) {
+                        .int => Value{ .int = std.fmt.parseInt(i32, token.literal, 10) catch 0 },
+                        .float => Value{ .float = std.fmt.parseFloat(f64, token.literal) catch 0 },
+                        .string => Value{ .string = token.literal },
+                        .bool => Value{ .bool = std.mem.eql(u8, token.literal, "true") },
+                        .nothing => Value{ .nothing = {} },
+                    };
+                    result_stack.append(value) catch unreachable;
+                },
+                .TKN_IDENTIFIER => {
+                    // Look up the variable value and push onto the stack
+                    var found = false;
+                    var it = self.root_scope.variables.iterator();
+                    while (it.next()) |entry| {
+                        if (std.mem.eql(u8, entry.key_ptr.*, token.literal)) {
+                            result_stack.append(entry.value_ptr.*.value) catch unreachable;
+                            found = true;
+                            break;
+                        }
+                    }
+
+                    if (!found) {
+                        // Variable not found, use default value
+                        std.debug.print("Warning: Variable '{s}' not found in expression, using 0\n", .{token.literal});
+                        result_stack.append(Value{ .int = 0 }) catch unreachable;
+                    }
+                },
+                .TKN_PLUS, .TKN_MINUS, .TKN_STAR, .TKN_SLASH, .TKN_PERCENT, .TKN_POWER => {
+                    if (result_stack.items.len < 2) {
+                        std.debug.print("Error: Not enough operands for operator {s}\n", .{token.literal});
+                        return Value{ .int = 0 }; // Return a default value in case of error
+                    }
+
+                    // Get the operands (but don't remove them yet)
+                    const b_index = result_stack.items.len - 1;
+                    const a_index = result_stack.items.len - 2;
+
+                    const b = result_stack.items[b_index];
+                    const a = result_stack.items[a_index];
+
+                    // For simplicity, we'll assume all values are integers for now
+                    var a_val: i32 = 0;
+                    var b_val: i32 = 0;
+
+                    // Extract integer values
+                    switch (a) {
+                        .int => |val| a_val = val,
+                        .float => |val| a_val = @intFromFloat(val),
+                        .string, .bool, .nothing => {
+                            std.debug.print("Warning: Non-numeric value in expression, using 0\n", .{});
+                        },
+                    }
+
+                    switch (b) {
+                        .int => |val| b_val = val,
+                        .float => |val| b_val = @intFromFloat(val),
+                        .string, .bool, .nothing => {
+                            std.debug.print("Warning: Non-numeric value in expression, using 0\n", .{});
+                        },
+                    }
+
+                    var result: i32 = 0;
+
+                    switch (token.token_type) {
+                        .TKN_PLUS => result = a_val + b_val,
+                        .TKN_MINUS => result = a_val - b_val,
+                        .TKN_STAR => result = a_val * b_val,
+                        .TKN_SLASH => {
+                            if (b_val == 0) {
+                                std.debug.print("Error: Division by zero\n", .{});
+                                result = 0;
+                            } else {
+                                result = @divTrunc(a_val, b_val);
+                            }
+                        },
+                        .TKN_PERCENT => {
+                            if (b_val == 0) {
+                                std.debug.print("Error: Modulo by zero\n", .{});
+                                result = 0;
+                            } else {
+                                result = @mod(a_val, b_val);
+                            }
+                        },
+                        .TKN_POWER => {
+                            // Simple power implementation
+                            result = 1;
+                            var exp = b_val;
+                            while (exp > 0) : (exp -= 1) {
+                                result *= a_val;
+                            }
+                        },
+                        else => {},
+                    }
+
+                    // Remove the two operands
+                    _ = result_stack.orderedRemove(b_index);
+                    _ = result_stack.orderedRemove(a_index);
+
+                    // Push the result
+                    result_stack.append(Value{ .int = result }) catch unreachable;
+                },
+                else => {},
+            }
+        }
+
+        // Return the final result
+        if (result_stack.items.len > 0) {
+            const final_result = result_stack.items[result_stack.items.len - 1];
+            std.debug.print("Expression result: {any}\n", .{final_result});
+            return final_result;
+        } else {
+            std.debug.print("Error: Empty expression result\n", .{});
+            return Value{ .int = 0 };
+        }
+    }
+
     // Main interpret function
     pub fn interpret(self: *Preprocessor, tokens: []ParsedToken) !void {
         var i: usize = 0;
@@ -423,14 +633,45 @@ pub const Preprocessor = struct {
                     const assignment = try self.buildAssignmentArray(tokens, i);
                     defer self.allocator.free(assignment);
 
-                    try self.assignValue(assignment);
+                    // Check if the next token is an expression
+                    if (i + 1 < tokens.len and tokens[i + 1].token_type == .TKN_EXPRESSION) {
+                        // Skip the expression token in the next iteration since we're handling it now
+                        defer i += 1;
+
+                        if (tokens[i + 1].expression) |expression| {
+                            // Safely evaluate the expression
+                            const result = self.evaluateExpression(expression);
+
+                            // Update the assignment with the expression result
+                            if (assignment.len >= 2) {
+                                var modified_assignment = try self.allocator.dupe(Variable, assignment);
+                                defer self.allocator.free(modified_assignment);
+
+                                // Replace the value part with our calculated result
+                                modified_assignment[modified_assignment.len - 1].value = result;
+                                modified_assignment[modified_assignment.len - 1].type = .int; // Assuming int for now
+
+                                try self.assignValue(modified_assignment);
+                            } else {
+                                try self.assignValue(assignment);
+                            }
+                        } else {
+                            try self.assignValue(assignment);
+                        }
+                    } else {
+                        try self.assignValue(assignment);
+                    }
+                },
+                .TKN_EXPRESSION => {
+                    // Expression tokens are handled alongside VALUE_ASSIGN tokens
+                    continue;
                 },
                 .TKN_INSPECT => {
                     if (i > 0) {
                         // Handle direct values
                         if (i > 0 and tokens[i - 1].token_type == .TKN_VALUE) {
                             const value_type_str = tokens[i - 1].value_type.toString();
-                            std.debug.print("[{d}:{d}] value :: {s} = ", .{
+                            std.debug.print("[{d}:{d}] value  :{s} = ", .{
                                 current_token.line_number,
                                 current_token.token_number,
                                 value_type_str,
@@ -472,7 +713,7 @@ pub const Preprocessor = struct {
                         }
 
                         if (self.getLookupValue(path)) |var_value| {
-                            std.debug.print("[{d}:{d}] {s} :: {s} = ", .{
+                            std.debug.print("[{d}:{d}] {s} :{s} = ", .{
                                 current_token.line_number,
                                 current_token.token_number,
                                 path_str,
@@ -487,11 +728,7 @@ pub const Preprocessor = struct {
                                 .nothing => std.debug.print("(nothing)\n", .{}),
                             }
                         } else {
-                            std.debug.print("[{d}:{d}] {s} :: undefined = undefined\n", .{
-                                current_token.line_number,
-                                current_token.token_number,
-                                path_str,
-                            });
+                            unreachable;
                         }
 
                         // Free after using

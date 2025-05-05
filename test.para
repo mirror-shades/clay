@@ -1,5 +1,5 @@
-x :int = 5
+x :int = 2  
 
-y :int = x
+y :int = x * (4 + 2)
 
 y ?

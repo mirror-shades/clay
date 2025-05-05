@@ -51,6 +51,7 @@ pub const TokenKind = enum {
     TKN_NEWLINE, // \n
     TKN_INSPECT, // ?
     TKN_LOOKUP, //
+    TKN_EXPRESSION, // expression
     TKN_EOF, // end of file
 
     pub fn toString(self: TokenKind) []const u8 {
@@ -59,6 +60,7 @@ pub const TokenKind = enum {
             .TKN_NEWLINE => "TKN_NEWLINE",
             .TKN_EOF => "TKN_EOF",
             .TKN_ARROW => "TKN_ARROW",
+            .TKN_EXPRESSION => "TKN_EXPRESSION",
             .TKN_VALUE_ASSIGN => "TKN_VALUE_ASSIGN",
             .TKN_TYPE_ASSIGN => "TKN_TYPE_ASSIGN",
             .TKN_SLASH => "TKN_SLASH",
