@@ -4,6 +4,9 @@ const Token = @import("token.zig").Token;
 const TokenKind = @import("token.zig").TokenKind;
 const ValueType = @import("token.zig").ValueType;
 const Value = @import("token.zig").Value;
+const printError = std.debug.print;
+const printDebug = std.debug.print;
+const printInspect = std.debug.print;
 
 pub const Preprocessor = struct {
     pub const Variable = struct {
@@ -84,13 +87,6 @@ pub const Preprocessor = struct {
             result[idx] = item;
         }
 
-        // Debug the path we're looking up
-        std.debug.print("Looking up path: ", .{});
-        for (result) |part| {
-            std.debug.print("{s} -> ", .{part});
-        }
-        std.debug.print("\n", .{});
-
         return result;
     }
 
@@ -149,13 +145,6 @@ pub const Preprocessor = struct {
 
             current_index -= 1;
         }
-
-        // Debug the lookup path we found
-        std.debug.print("Lookup path (backward): ", .{});
-        for (path.items) |part| {
-            std.debug.print("{s} -> ", .{part});
-        }
-        std.debug.print("\n", .{});
 
         // Create a slice that will be owned by the caller
         const result = try self.allocator.alloc([]const u8, path.items.len);
@@ -228,7 +217,7 @@ pub const Preprocessor = struct {
         }
 
         if (!identifier_found) {
-            std.debug.print("Error: No identifier found before assignment at token {d}\n", .{index});
+            printError("Error: No identifier found before assignment at token {d}\n", .{index});
             return error.InvalidAssignment;
         }
 
@@ -263,37 +252,21 @@ pub const Preprocessor = struct {
             const lookup_path = try self.buildLookupPathForward(tokens, index + 1);
             defer self.allocator.free(lookup_path);
 
-            if (self.getLookupValue(lookup_path)) |var_value| {
+            if (try self.getLookupValue(lookup_path)) |var_value| {
                 try result.append(var_value);
                 value_found = true;
             } else {
                 // Instead of returning an error, append a variable with "not found" indicator
-                std.debug.print("Warning: Value not found in lookup path, using default value\n", .{});
-                try result.append(Variable{
-                    .name = "value_not_found",
-                    .value = Value{ .nothing = {} },
-                    .type = .nothing,
-                });
-                value_found = true;
+                printError("Warning: Value not found in lookup path, using default value\n", .{});
+                return error.ValueNotFoundInLookupPath;
             }
         }
 
         // If no value was found, add a default value to ensure we have at least 2 elements
         if (!value_found) {
-            std.debug.print("Warning: No value found after assignment, using default\n", .{});
-            try result.append(Variable{
-                .name = "value",
-                .value = Value{ .int = 0 },
-                .type = .int,
-            });
+            printError("Warning: No value found after assignment, using default\n", .{});
+            return error.NoValueFoundAfterAssignment;
         }
-
-        // Debug: Print the assignment array
-        std.debug.print("Assignment array: ", .{});
-        for (result.items, 0..) |item, idx| {
-            std.debug.print("[{d}]={s} ", .{ idx, item.name });
-        }
-        std.debug.print("\n", .{});
 
         // Create a slice that will be owned by the caller
         const array = try self.allocator.alloc(Variable, result.items.len);
@@ -351,78 +324,36 @@ pub const Preprocessor = struct {
     }
 
     // Retrieves a value from the appropriate scope
-    pub fn getLookupValue(self: *Preprocessor, path: [][]const u8) ?Variable {
-        if (path.len < 1) return null;
+    pub fn getLookupValue(self: *Preprocessor, path: [][]const u8) !?Variable {
+        if (path.len < 1) return error.InvalidLookupPath;
 
         // Last element is the variable name
         const var_name = path[path.len - 1];
 
-        // Debug: Print the path being looked up
-        std.debug.print("getLookupValue path: ", .{});
-        for (path) |part| {
-            std.debug.print("{s} -> ", .{part});
-        }
-        std.debug.print("\n", .{});
-
         // Navigate to the correct scope
         var current_scope = &self.root_scope;
 
-        // Debug: Print all variables in root scope
-        std.debug.print("Root scope variables: ", .{});
-        var root_it = current_scope.variables.iterator();
-        while (root_it.next()) |entry| {
-            std.debug.print("{s}, ", .{entry.key_ptr.*});
-        }
-        std.debug.print("\n", .{});
-
-        // Debug: Print all nested scopes in root
-        std.debug.print("Root nested scopes: ", .{});
-        var nested_it = current_scope.nested_scopes.iterator();
-        while (nested_it.next()) |entry| {
-            std.debug.print("{s}, ", .{entry.key_ptr.*});
-        }
-        std.debug.print("\n", .{});
-
-        for (path[0 .. path.len - 1], 0..) |scope_name, idx| {
+        for (path[0 .. path.len - 1]) |scope_name| {
             if (!current_scope.nested_scopes.contains(scope_name)) {
-                std.debug.print("Scope not found: {s}\n", .{scope_name});
-                return null; // Scope doesn't exist
+                printError("Scope not found: {s}\n", .{scope_name});
+                return error.ScopeNotFound; // Scope doesn't exist
             }
 
             current_scope = current_scope.nested_scopes.get(scope_name).?;
-
-            // Debug: Print variables in current scope
-            std.debug.print("Scope {s} variables: ", .{scope_name});
-            var vars_it = current_scope.variables.iterator();
-            while (vars_it.next()) |entry| {
-                std.debug.print("{s}, ", .{entry.key_ptr.*});
-            }
-            std.debug.print("\n", .{});
-
-            // If not at the last scope, print nested scopes
-            if (idx < path.len - 2) {
-                std.debug.print("Scope {s} nested scopes: ", .{scope_name});
-                var next_nested_it = current_scope.nested_scopes.iterator();
-                while (next_nested_it.next()) |entry| {
-                    std.debug.print("{s}, ", .{entry.key_ptr.*});
-                }
-                std.debug.print("\n", .{});
-            }
         }
 
         // Look up the variable
         const result = current_scope.variables.get(var_name);
-        if (result) |val| {
-            std.debug.print("Found variable {s} with type {s}\n", .{ var_name, val.type.toString() });
-        } else {
-            std.debug.print("Variable {s} not found in scope\n", .{var_name});
+        if (result == null) {
+            printError("Variable {s} not found in scope\n", .{var_name});
+            return error.VariableNotFoundInScope;
         }
         return result;
     }
 
     fn evaluateExpression(self: *Preprocessor, tokens: []Token) !Value {
         if (tokens.len == 0) {
-            std.debug.print("Warning: Empty expression\n", .{});
+            printError("Warning: Empty expression\n", .{});
             return Value{ .int = 0 };
         }
 
@@ -444,8 +375,6 @@ pub const Preprocessor = struct {
             }
         }.get;
 
-        // First, convert infix to postfix (shunting yard algorithm)
-        std.debug.print("evaluating expression\n", .{});
         for (tokens) |token| {
             if (token.token_type == .TKN_VALUE) {
                 output.append(token) catch unreachable;
@@ -480,7 +409,7 @@ pub const Preprocessor = struct {
                     _ = stack.orderedRemove(stack.items.len - 1);
                 }
             } else if (token.token_type == .TKN_ARROW) {
-                std.debug.print("No arrow allowed in expression[{d}:{d}] {s}\n", .{ token.line_number, token.token_number, token.literal });
+                printError("No arrow allowed in expression[{d}:{d}] {s}\n", .{ token.line_number, token.token_number, token.literal });
                 return error.InvalidExpression;
             } else {
                 // Skip tokens that aren't part of the expression
@@ -493,12 +422,6 @@ pub const Preprocessor = struct {
             output.append(last_op) catch unreachable;
             _ = stack.orderedRemove(stack.items.len - 1);
         }
-
-        std.debug.print("output: ", .{});
-        for (output.items) |token| {
-            std.debug.print("{s} ", .{token.literal});
-        }
-        std.debug.print("\n", .{});
 
         // Now evaluate the postfix expression
         var result_stack = std.ArrayList(Value).init(self.allocator);
@@ -530,15 +453,14 @@ pub const Preprocessor = struct {
                     }
 
                     if (!found) {
-                        // Variable not found, use default value
-                        std.debug.print("Warning: Variable '{s}' not found in expression, using 0\n", .{token.literal});
-                        result_stack.append(Value{ .int = 0 }) catch unreachable;
+                        printError("Warning: Variable '{s}' not found in expression, using 0\n", .{token.literal});
+                        return error.VariableNotFoundInExpression;
                     }
                 },
                 .TKN_PLUS, .TKN_MINUS, .TKN_STAR, .TKN_SLASH, .TKN_PERCENT, .TKN_POWER => {
                     if (result_stack.items.len < 2) {
-                        std.debug.print("Error: Not enough operands for operator {s}\n", .{token.literal});
-                        return Value{ .int = 0 }; // Return a default value in case of error
+                        printError("Error: Not enough operands for operator {s}\n", .{token.literal});
+                        return error.NotEnoughOperands;
                     }
 
                     // Get the operands (but don't remove them yet)
@@ -557,7 +479,8 @@ pub const Preprocessor = struct {
                         .int => |val| a_val = val,
                         .float => |val| a_val = @intFromFloat(val),
                         .string, .bool, .nothing => {
-                            std.debug.print("Warning: Non-numeric value in expression, using 0\n", .{});
+                            printError("Warning: Non-numeric value in expression, using 0\n", .{});
+                            return error.NonNumericValue;
                         },
                     }
 
@@ -565,7 +488,8 @@ pub const Preprocessor = struct {
                         .int => |val| b_val = val,
                         .float => |val| b_val = @intFromFloat(val),
                         .string, .bool, .nothing => {
-                            std.debug.print("Warning: Non-numeric value in expression, using 0\n", .{});
+                            printError("Warning: Non-numeric value in expression, using 0\n", .{});
+                            return error.NonNumericValue;
                         },
                     }
 
@@ -577,16 +501,16 @@ pub const Preprocessor = struct {
                         .TKN_STAR => result = a_val * b_val,
                         .TKN_SLASH => {
                             if (b_val == 0) {
-                                std.debug.print("Error: Division by zero\n", .{});
-                                result = 0;
+                                printError("Error: Division by zero\n", .{});
+                                return error.DivisionByZero;
                             } else {
                                 result = @divTrunc(a_val, b_val);
                             }
                         },
                         .TKN_PERCENT => {
                             if (b_val == 0) {
-                                std.debug.print("Error: Modulo by zero\n", .{});
-                                result = 0;
+                                printError("Error: Modulo by zero\n", .{});
+                                return error.ModuloByZero;
                             } else {
                                 result = @mod(a_val, b_val);
                             }
@@ -616,10 +540,9 @@ pub const Preprocessor = struct {
         // Return the final result
         if (result_stack.items.len > 0) {
             const final_result = result_stack.items[result_stack.items.len - 1];
-            std.debug.print("Expression result: {any}\n", .{final_result});
             return final_result;
         } else {
-            std.debug.print("Error: Empty expression result\n", .{});
+            printError("Error: Empty expression result\n", .{});
             return Value{ .int = 0 };
         }
     }
@@ -674,7 +597,7 @@ pub const Preprocessor = struct {
                         // Handle direct values
                         if (i > 0 and tokens[i - 1].token_type == .TKN_VALUE) {
                             const value_type_str = tokens[i - 1].value_type.toString();
-                            std.debug.print("[{d}:{d}] value  :{s} = ", .{
+                            printInspect("[{d}:{d}] value  :{s} = ", .{
                                 current_token.line_number,
                                 current_token.token_number,
                                 value_type_str,
@@ -682,11 +605,11 @@ pub const Preprocessor = struct {
 
                             // Print the value based on its type
                             switch (tokens[i - 1].value_type) {
-                                .int => std.debug.print("{d}\n", .{tokens[i - 1].value.int}),
-                                .float => std.debug.print("{any}\n", .{tokens[i - 1].value.float}),
-                                .string => std.debug.print("\"{s}\"\n", .{tokens[i - 1].value.string}),
-                                .bool => std.debug.print("{s}\n", .{if (tokens[i - 1].value.bool) "TRUE" else "FALSE"}),
-                                .nothing => std.debug.print("(nothing)\n", .{}),
+                                .int => printInspect("{d}\n", .{tokens[i - 1].value.int}),
+                                .float => printInspect("{any}\n", .{tokens[i - 1].value.float}),
+                                .string => printInspect("\"{s}\"\n", .{tokens[i - 1].value.string}),
+                                .bool => printInspect("{s}\n", .{if (tokens[i - 1].value.bool) "TRUE" else "FALSE"}),
+                                .nothing => printInspect("(nothing)\n", .{}),
                             }
                             continue;
                         }
@@ -715,8 +638,8 @@ pub const Preprocessor = struct {
                             // Don't free yet: defer self.allocator.free(path_str);
                         }
 
-                        if (self.getLookupValue(path)) |var_value| {
-                            std.debug.print("[{d}:{d}] {s} :{s} = ", .{
+                        if (try self.getLookupValue(path)) |var_value| {
+                            printInspect("[{d}:{d}] {s} :{s} = ", .{
                                 current_token.line_number,
                                 current_token.token_number,
                                 path_str,
@@ -724,11 +647,11 @@ pub const Preprocessor = struct {
                             });
 
                             switch (var_value.type) {
-                                .int => std.debug.print("{d}\n", .{var_value.value.int}),
-                                .float => std.debug.print("{any}\n", .{var_value.value.float}),
-                                .string => std.debug.print("\"{s}\"\n", .{var_value.value.string}),
-                                .bool => std.debug.print("{s}\n", .{if (var_value.value.bool) "TRUE" else "FALSE"}),
-                                .nothing => std.debug.print("(nothing)\n", .{}),
+                                .int => printInspect("{d}\n", .{var_value.value.int}),
+                                .float => printInspect("{any}\n", .{var_value.value.float}),
+                                .string => printInspect("\"{s}\"\n", .{var_value.value.string}),
+                                .bool => printInspect("{s}\n", .{if (var_value.value.bool) "TRUE" else "FALSE"}),
+                                .nothing => printInspect("(nothing)\n", .{}),
                             }
                         } else {
                             unreachable;
@@ -853,13 +776,6 @@ pub const Preprocessor = struct {
                 try path.append(part);
             }
         }
-
-        // Debug the inspection path
-        std.debug.print("Inspection path: ", .{});
-        for (path.items) |part| {
-            std.debug.print("{s} -> ", .{part});
-        }
-        std.debug.print("\n", .{});
 
         // Create a slice that will be owned by the caller
         const result = try self.allocator.alloc([]const u8, path.items.len);
