@@ -4,6 +4,7 @@ const TokenKind = @import("token.zig").TokenKind;
 const ValueType = @import("token.zig").ValueType;
 const Value = @import("token.zig").Value;
 const printError = std.debug.print;
+const printDebug = std.debug.print;
 const printInspect = std.debug.print;
 
 const Group = struct {
@@ -135,10 +136,13 @@ pub const Parser = struct {
                         return error.MultipleAssignments;
                     }
                     has_equals = true;
-                    const assign_line: std.ArrayList(Token) = grabLine(self, current_token);
+                    const assign_line: std.ArrayList(Token) = grabLine(self, current_token) catch |err| {
+                        printError("Error grabbing line: {s}\n", .{@errorName(err)});
+                        return error.ErrorGrabbingLine;
+                    };
                     defer assign_line.deinit();
-                    if (assign_line.items.len > 1) {
-                        std.debug.print("this is an expression\n", .{});
+                    const if_expression = ifExpression(assign_line.items);
+                    if (if_expression) {
                         try self.parsed_tokens.append(ParsedToken{ .token_type = .TKN_VALUE_ASSIGN, .literal = current_token.literal, .expression = null, .value_type = .nothing, .value = .{ .nothing = {} }, .line_number = assign_line.items[0].line_number, .token_number = current_token.token_number });
 
                         // Clone the tokens to ensure they remain valid
@@ -153,7 +157,8 @@ pub const Parser = struct {
                         } else {
                             // If no expression tokens, don't add an expression token and free the allocated memory
                             self.allocator.free(expression_tokens);
-                            std.debug.print("Warning: Empty expression detected\n", .{});
+                            printError("Warning: Empty expression detected\n", .{});
+                            return error.EmptyExpression;
                         }
                     } else {
                         try self.parsed_tokens.append(ParsedToken{ .token_type = .TKN_VALUE_ASSIGN, .literal = current_token.literal, .expression = null, .value_type = .nothing, .value = .{ .nothing = {} }, .line_number = assign_line.items[0].line_number, .token_number = current_token.token_number });
@@ -235,15 +240,24 @@ pub const Parser = struct {
 
     pub fn dumpParser(self: *Parser) void {
         for (self.parsed_tokens.items) |token| {
-            std.debug.print("{s} ", .{token.literal});
-            std.debug.print("({s}) ", .{@tagName(token.token_type)});
-            std.debug.print("({s}) ", .{@tagName(token.value_type)});
-            std.debug.print("\n", .{});
+            printDebug("{s} ", .{token.literal});
+            printDebug("({s}) ", .{@tagName(token.token_type)});
+            printDebug("({s}) ", .{@tagName(token.value_type)});
+            printDebug("\n", .{});
         }
     }
 };
 
-fn grabLine(self: *Parser, current_token: Token) std.ArrayList(Token) {
+fn ifExpression(tokens: []Token) bool {
+    for (tokens) |token| {
+        if (token.token_type == .TKN_PLUS or token.token_type == .TKN_MINUS or token.token_type == .TKN_STAR or token.token_type == .TKN_SLASH or token.token_type == .TKN_PERCENT or token.token_type == .TKN_POWER or token.token_type == .TKN_LPAREN or token.token_type == .TKN_RPAREN) {
+            return true;
+        }
+    }
+    return false;
+}
+
+fn grabLine(self: *Parser, current_token: Token) !std.ArrayList(Token) {
     var line_array = std.ArrayList(Token).init(self.allocator);
     var found_assign: bool = false;
     var last_token_type: ?TokenKind = null;
@@ -271,14 +285,15 @@ fn grabLine(self: *Parser, current_token: Token) std.ArrayList(Token) {
                             .value_type = .nothing,
                         };
                         line_array.append(implicit_mul) catch |err| {
-                            std.debug.print("Error appending implicit multiplication: {s}\n", .{@errorName(err)});
+                            printError("Error appending implicit multiplication: {s}\n", .{@errorName(err)});
+                            return error.ErrorAppendingImplicitMultiplication;
                         };
                     }
                 }
 
                 line_array.append(token) catch |err| {
-                    std.debug.print("Error appending to line_array: {s}\n", .{@errorName(err)});
-                    break;
+                    printError("Error appending to line_array: {s}\n", .{@errorName(err)});
+                    return error.ErrorAppendingToLineArray;
                 };
                 last_token_type = token.token_type;
             }

@@ -1,3 +1,13 @@
 // Root scope variables
-x : int = 2
-y : int = 12
+newSalary : int = 70000
+age : int = 15
+y : int = 70000
+
+// person-> scope variables
+person->working : bool = TRUE
+person->age : int = 51
+person->name : string = "Bob"
+
+// person->job-> scope variables
+person->job->salary : int = 70000
+person->job->title : string = "Painter"

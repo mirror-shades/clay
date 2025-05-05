@@ -420,7 +420,7 @@ pub const Preprocessor = struct {
         return result;
     }
 
-    fn evaluateExpression(self: *Preprocessor, tokens: []Token) Value {
+    fn evaluateExpression(self: *Preprocessor, tokens: []Token) !Value {
         if (tokens.len == 0) {
             std.debug.print("Warning: Empty expression\n", .{});
             return Value{ .int = 0 };
@@ -479,6 +479,9 @@ pub const Preprocessor = struct {
                 if (stack.items.len > 0 and stack.items[stack.items.len - 1].token_type == .TKN_LPAREN) {
                     _ = stack.orderedRemove(stack.items.len - 1);
                 }
+            } else if (token.token_type == .TKN_ARROW) {
+                std.debug.print("No arrow allowed in expression[{d}:{d}] {s}\n", .{ token.line_number, token.token_number, token.literal });
+                return error.InvalidExpression;
             } else {
                 // Skip tokens that aren't part of the expression
                 continue;
@@ -648,7 +651,7 @@ pub const Preprocessor = struct {
                                 defer self.allocator.free(modified_assignment);
 
                                 // Replace the value part with our calculated result
-                                modified_assignment[modified_assignment.len - 1].value = result;
+                                modified_assignment[modified_assignment.len - 1].value = try result;
                                 modified_assignment[modified_assignment.len - 1].type = .int; // Assuming int for now
 
                                 try self.assignValue(modified_assignment);

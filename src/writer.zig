@@ -48,7 +48,7 @@ pub fn writeFlatFile(tokens: []ParsedToken) !void {
                     },
                 }
             },
-            .TKN_VALUE_ASSIGN, .TKN_INSPECT, .TKN_IDENTIFIER, .TKN_PLUS, .TKN_MINUS, .TKN_STAR, .TKN_SLASH, .TKN_PERCENT, .TKN_POWER, .TKN_LPAREN, .TKN_RPAREN, .TKN_COMMA, .TKN_LBRACKET, .TKN_RBRACKET => {
+            .TKN_VALUE_ASSIGN, .TKN_INSPECT, .TKN_IDENTIFIER, .TKN_PLUS, .TKN_LOOKUP, .TKN_EXPRESSION, .TKN_MINUS, .TKN_STAR, .TKN_SLASH, .TKN_PERCENT, .TKN_POWER, .TKN_LPAREN, .TKN_RPAREN, .TKN_COMMA, .TKN_LBRACKET, .TKN_RBRACKET => {
                 try writer.print("{s} ", .{token.literal});
             },
             else => try writer.print("UNUSED TOKEN ENCOUNTERED:  {s} \n", .{token.literal}),

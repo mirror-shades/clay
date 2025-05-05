@@ -20,6 +20,9 @@ person -> : int {
 age = 10
 age = 15
 
+newSalary :int = 10000 * (4 + 3)
+person -> job -> salary = newSalary
+
 person -> age = 51
 
 person -> age ?

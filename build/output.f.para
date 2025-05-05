@@ -1,4 +1,25 @@
-x :int = 2 
-y :int = UNUSED TOKEN ENCOUNTERED:  Expression 
-* ( 4 + 2 ) 
+person-> age :int = 50 
+person-> job-> title :string = "Painter" 
+person-> job-> salary :float = 50000 
+person-> name :string = "Bob" 
+person-> working :bool = TRUE 
+person-> age :int = 50 
+person-> job-> title :string = "Painter" 
+person-> job-> salary :float = 50000 
+person-> name :string = "Bob" 
+person-> working :bool = TRUE 
+person-> age :int = 50 
+person-> name :string = "Bob" 
+age = 10 
+age = 15 
+newSalary :int = Expression 10000 * ( 4 + 3 ) 
+person-> job-> salary = newSalary 
+person-> age = 51 
+person-> age ? 
+person-> job-> title ? 
+person-> job-> salary ? 
+person-> name ? 
+person-> working ? 
+y = person-> job-> salary 
 y ? 
+5 ? 
