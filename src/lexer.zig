@@ -191,7 +191,7 @@ pub const Lexer = struct {
                 continue;
             }
 
-            if (c == 'i' or c == 's' or c == 'b' or c == 'f' or c == 't' or c == 'f' or c == 'm' or c == 'T' or c == 'F' or c == 'I' or c == 'F' or c == 'S' or c == 'B' or c == 'M') {
+            if (c == 'i' or c == 's' or c == 'b' or c == 'f' or c == 't' or c == 'f' or c == 'T' or c == 'F' or c == 'I' or c == 'F' or c == 'S' or c == 'B') {
                 const current_column = self.column;
                 const word = try self.readWord();
 
@@ -211,14 +211,6 @@ pub const Lexer = struct {
                     (c == 'T' and std.mem.eql(u8, word, "TRUE")) or
                     (c == 'F' and std.mem.eql(u8, word, "FALSE"));
 
-                const is_temp_word =
-                    (c == 't' and std.mem.eql(u8, word, "temp")) or
-                    (c == 'T' and std.mem.eql(u8, word, "TEMP"));
-
-                const is_muta_word =
-                    (c == 'm' and std.mem.eql(u8, word, "muta")) or
-                    (c == 'M' and std.mem.eql(u8, word, "MUTA"));
-
                 if (is_type_word) {
                     try self.tokens.append(.{
                         .literal = word,
@@ -232,22 +224,6 @@ pub const Lexer = struct {
                         .literal = word,
                         .token_type = .TKN_VALUE,
                         .value_type = .bool,
-                        .line_number = self.line,
-                        .token_number = current_column,
-                    });
-                } else if (is_temp_word) {
-                    try self.tokens.append(.{
-                        .literal = word,
-                        .token_type = .TKN_TEMP,
-                        .value_type = .nothing,
-                        .line_number = self.line,
-                        .token_number = current_column,
-                    });
-                } else if (is_muta_word) {
-                    try self.tokens.append(.{
-                        .literal = word,
-                        .token_type = .TKN_MUTA,
-                        .value_type = .nothing,
                         .line_number = self.line,
                         .token_number = current_column,
                     });

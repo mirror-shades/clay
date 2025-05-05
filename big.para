@@ -13,7 +13,7 @@ person -> {
 }
 
 person -> : int {
-    age = 50
+    age muta = 50
     name : string = "Bob"
 }
 

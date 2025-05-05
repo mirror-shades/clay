@@ -1,2 +1,19 @@
 // Root scope variables
-y : int = 5
+muta : int = 10
+newSalary : int = 70000
+age : int = 15
+y : int = 70000
+
+// person-> scope variables
+person->muta : bool = TRUE
+person->working : bool = TRUE
+person->age : int = 51
+person->name : string = "Bob"
+
+// person->job-> scope variables
+person->job->muta : float = 50000.00
+person->job->salary : int = 70000
+person->job->title : string = "Painter"
+
+// person->person-> scope variables
+person->person->muta : int = 50
