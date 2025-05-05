@@ -1,5 +1,9 @@
-x muta temp :int = 2  
 
-x = 5
+x muta temp :int = 2  
+y muta :int = 4
+
+x = x + 1
+y = y + 1
 
 x?
+y?

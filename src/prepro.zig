@@ -14,6 +14,7 @@ pub const Preprocessor = struct {
         value: Value,
         type: ValueType,
         mutable: bool,
+        temp: bool,
     };
 
     pub const Scope = struct {
@@ -155,7 +156,6 @@ pub const Preprocessor = struct {
         return result;
     }
 
-    // Build an array for assignment (similar to buildAssignmentArray in JS)
     pub fn buildAssignmentArray(self: *Preprocessor, tokens: []ParsedToken, index: usize) ![]Variable {
         var result = std.ArrayList(Variable).init(self.allocator);
         defer result.deinit();
@@ -170,6 +170,7 @@ pub const Preprocessor = struct {
                     .value = Value{ .nothing = {} },
                     .type = .nothing,
                     .mutable = false,
+                    .temp = false,
                 });
             } else if (tokens[@intCast(i)].token_type == .TKN_NEWLINE or
                 tokens[@intCast(i)].token_type == .TKN_EOF)
@@ -232,6 +233,7 @@ pub const Preprocessor = struct {
                 .value = Value{ .nothing = {} },
                 .type = .nothing,
                 .mutable = is_mutable,
+                .temp = tokens[@intCast(identifier_pos)].temp,
             });
             identifier_found = true;
         }
@@ -252,6 +254,7 @@ pub const Preprocessor = struct {
                 .value = Value{ .int = 12 }, // Default value for expressions
                 .type = .int,
                 .mutable = false,
+                .temp = false,
             });
             value_found = true;
         }
@@ -262,6 +265,7 @@ pub const Preprocessor = struct {
                 .value = tokens[index + 1].value,
                 .type = tokens[index + 1].value_type,
                 .mutable = false, // Default value for literals
+                .temp = false,
             });
             value_found = true;
         }
@@ -340,6 +344,7 @@ pub const Preprocessor = struct {
                 .value = value_item.value,
                 .type = value_item.type,
                 .mutable = is_mutable,
+                .temp = assignment_array[assignment_array.len - 2].temp,
             };
 
             try self.root_scope.variables.put(identifier, variable);
@@ -384,6 +389,7 @@ pub const Preprocessor = struct {
             .value = value_item.value,
             .type = value_item.type,
             .mutable = is_mutable,
+            .temp = assignment_array[assignment_array.len - 2].temp,
         };
 
         try current_scope.variables.put(identifier, variable);
@@ -744,6 +750,13 @@ pub const Preprocessor = struct {
         var root_it = self.root_scope.variables.iterator();
         while (root_it.next()) |entry| {
             const var_value = entry.value_ptr.*;
+            std.debug.print("var_value: {s}\n", .{var_value.name});
+            std.debug.print("var_value.temp: {}\n", .{var_value.temp});
+            // Skip temporary variables
+            if (var_value.temp) {
+                continue;
+            }
+
             try writeVariableToWriter(writer, "", entry.key_ptr.*, var_value);
         }
 
@@ -776,6 +789,12 @@ pub const Preprocessor = struct {
             var vars_it = nested_scope.variables.iterator();
             while (vars_it.next()) |var_entry| {
                 const var_value = var_entry.value_ptr.*;
+
+                // Skip temporary variables
+                if (var_value.temp) {
+                    continue;
+                }
+
                 try writeVariableToWriter(writer, new_prefix, var_entry.key_ptr.*, var_value);
             }
 

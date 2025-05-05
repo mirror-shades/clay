@@ -60,18 +60,6 @@ pub fn writeBakedFile(tokens: []ParsedToken, preprocessor: *Preprocessor, alloca
     defer file.close();
 
     var writer = file.writer();
-    var new_line_needed: bool = false;
-
-    for (tokens) |token| {
-        if (token.token_type == .TKN_NEWLINE) {
-            if (new_line_needed == true) {
-                try writer.writeAll("\n");
-                new_line_needed = false;
-            }
-            continue;
-        }
-        new_line_needed = true;
-    }
 
     std.debug.print("Writing baked file\n", .{});
 
@@ -80,21 +68,70 @@ pub fn writeBakedFile(tokens: []ParsedToken, preprocessor: *Preprocessor, alloca
     var current_line_scopes = std.ArrayList([]const u8).init(allocator);
     defer current_line_scopes.deinit();
 
-    while (i < tokens.len) : (i += 1) {
+    // Track if the current line contains a temp identifier
+    var current_line_identifier: ?[]const u8 = null;
+    var skip_current_line: bool = false;
+    var line_start_index: usize = 0;
+
+    while (i < tokens.len) {
         const current_token = tokens[i];
 
+        // If we hit a newline, reset for the next line
+        if (current_token.token_type == .TKN_NEWLINE) {
+            // Only write a newline if we're not skipping the current line
+            if (!skip_current_line) {
+                try writer.print("\n", .{});
+            }
+
+            // Reset for next line
+            current_line_scopes.clearRetainingCapacity();
+            current_line_identifier = null;
+            skip_current_line = false;
+            line_start_index = i + 1;
+            i += 1;
+            continue;
+        }
+
+        // Check for identifiers at the start of a statement
+        if (current_token.token_type == .TKN_IDENTIFIER) {
+            // Track the current line's main identifier
+            if (current_line_identifier == null) {
+                current_line_identifier = current_token.literal;
+
+                // Check if this identifier is temporary in the preprocessor
+                const path = try findFullPath(current_token.literal, tokens, line_start_index, i, allocator);
+                defer allocator.free(path);
+
+                if (try preprocessor.getLookupValue(path)) |variable| {
+                    // If the variable is marked as temp, skip this line
+                    if (variable.temp) {
+                        skip_current_line = true;
+                    }
+                }
+
+                // Also check if the token itself is marked temp
+                if (current_token.temp) {
+                    skip_current_line = true;
+                }
+            }
+        }
+
+        // Skip printing this token if we're skipping the current line
+        if (skip_current_line) {
+            i += 1;
+            continue;
+        }
+
+        // If not skipping, print the token
         switch (current_token.token_type) {
             .TKN_GROUP => {
-                // Handle groups for current line
                 try current_line_scopes.append(current_token.literal);
                 try writer.print("{s}-> ", .{current_token.literal});
             },
             .TKN_IDENTIFIER => {
-                // Write identifier
                 try writer.print("{s} ", .{current_token.literal});
             },
             .TKN_TYPE => {
-                // Write type
                 try writer.print(":{s} ", .{current_token.literal});
             },
             .TKN_VALUE_ASSIGN => {
@@ -140,10 +177,6 @@ pub fn writeBakedFile(tokens: []ParsedToken, preprocessor: *Preprocessor, alloca
                     .nothing => try writer.print("UNDEFINED", .{}),
                 }
             },
-            .TKN_NEWLINE => {
-                try writer.print("\n", .{});
-                current_line_scopes.clearRetainingCapacity();
-            },
             .TKN_INSPECT => {
                 try writer.print("? ", .{});
             },
@@ -152,7 +185,33 @@ pub fn writeBakedFile(tokens: []ParsedToken, preprocessor: *Preprocessor, alloca
             },
             else => {},
         }
+
+        i += 1;
     }
+}
+
+// Helper function to find the full path of an identifier
+fn findFullPath(identifier: []const u8, tokens: []ParsedToken, line_start: usize, pos: usize, allocator: std.mem.Allocator) ![][]const u8 {
+    var path = std.ArrayList([]const u8).init(allocator);
+    defer path.deinit();
+
+    // Add any scope prefixes
+    for (tokens[line_start..pos]) |token| {
+        if (token.token_type == .TKN_GROUP) {
+            try path.append(token.literal);
+        }
+    }
+
+    // Add the identifier itself
+    try path.append(identifier);
+
+    // Create the return array
+    var result = try allocator.alloc([]const u8, path.items.len);
+    for (path.items, 0..) |item, idx| {
+        result[idx] = item;
+    }
+
+    return result;
 }
 
 // Writes a file with the final variable state from all scopes
