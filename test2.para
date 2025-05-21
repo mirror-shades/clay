@@ -1,10 +1,16 @@
 person -> age : int = 50
 
 person -> { 
-    age : int = 50 + 20
+    retirement : int = 50 + 20
 }
 
+raise = 500
+man = "Bob" 
+
+
 person -> : int {
-    age = 50
-    name : string = "Bob"
+    job -> salary = 15000  + raise
+    job -> title : string = "Bartender"
+    name : string = man
+
 }

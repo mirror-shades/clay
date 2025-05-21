@@ -1,5 +1,5 @@
+man = "Bob" 
 
-x :int = 2  
-
-y -> x :int = 4
-
+person -> {
+    name : string = man
+}

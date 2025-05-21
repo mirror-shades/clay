@@ -168,10 +168,9 @@ pub fn writeVariableState(preprocessor: *Preprocessor, file_path: []const u8, al
 
     // Create a buffered writer for better performance
     var buffered_writer = std.io.bufferedWriter(output_file.writer());
-    const writer = buffered_writer.writer();
 
     // Use the preprocessor's dumpVariables function to output all variables
-    try preprocessor.dumpVariables(writer, allocator);
+    try preprocessor.dumpVariables(allocator);
 
     // Flush the remaining buffered data
     try buffered_writer.flush();

@@ -13,6 +13,8 @@ pub const Preprocessor = struct {
         name: []const u8,
         value: Value,
         type: ValueType,
+        mutable: bool,
+        temp: bool,
     };
 
     pub const Scope = struct {
@@ -65,7 +67,11 @@ pub const Preprocessor = struct {
             tokens[i].token_type == .TKN_GROUP or
             tokens[i].token_type == .TKN_LOOKUP))
         {
-            try path.append(tokens[i].literal);
+            // Only add the token if it's not a group token
+            // This prevents including the current scope in the lookup path
+            if (tokens[i].token_type != .TKN_GROUP) {
+                try path.append(tokens[i].literal);
+            }
             i += 1;
         } else {
             return error.InvalidLookupPath;
@@ -73,8 +79,14 @@ pub const Preprocessor = struct {
 
         // Continue collecting tokens as long as there are more in the path
         while (i < tokens.len) {
-            if (tokens[i].token_type == .TKN_GROUP or tokens[i].token_type == .TKN_IDENTIFIER or tokens[i].token_type == .TKN_LOOKUP) {
-                try path.append(tokens[i].literal);
+            if (tokens[i].token_type == .TKN_GROUP or
+                tokens[i].token_type == .TKN_IDENTIFIER or
+                tokens[i].token_type == .TKN_LOOKUP)
+            {
+                // Only add non-group tokens to the path
+                if (tokens[i].token_type != .TKN_GROUP) {
+                    try path.append(tokens[i].literal);
+                }
                 i += 1;
             } else {
                 break; // Stop at the first non-path token
@@ -160,8 +172,6 @@ pub const Preprocessor = struct {
         defer result.deinit();
 
         // First, collect any groups (scopes) that come before the identifier
-
-        // Scan backward from the assignment operator to find groups
         var i: isize = @intCast(index - 1);
         while (i >= 0) : (i -= 1) {
             if (tokens[@intCast(i)].token_type == .TKN_GROUP) {
@@ -169,24 +179,13 @@ pub const Preprocessor = struct {
                     .name = tokens[@intCast(i)].literal,
                     .value = Value{ .nothing = {} },
                     .type = .nothing,
+                    .mutable = false,
+                    .temp = false,
                 });
             } else if (tokens[@intCast(i)].token_type == .TKN_NEWLINE or
                 tokens[@intCast(i)].token_type == .TKN_EOF)
             {
                 break; // Stop at the beginning of the line
-            }
-        }
-
-        // If we found groups, reverse their order to get the path correctly
-        if (result.items.len > 0) {
-            var left: usize = 0;
-            var right: usize = result.items.len - 1;
-            while (left < right) {
-                const temp = result.items[left];
-                result.items[left] = result.items[right];
-                result.items[right] = temp;
-                left += 1;
-                right -= 1;
             }
         }
 
@@ -196,21 +195,23 @@ pub const Preprocessor = struct {
             const id_pos: isize = @intCast(index - 1);
 
             if (tokens[@intCast(id_pos)].token_type == .TKN_IDENTIFIER) {
-                // Identifier directly before assignment
                 try result.append(Variable{
                     .name = tokens[@intCast(id_pos)].literal,
                     .value = Value{ .nothing = {} },
                     .type = .nothing,
+                    .mutable = false,
+                    .temp = false,
                 });
                 identifier_found = true;
             } else if (id_pos > 0 and tokens[@intCast(id_pos)].token_type == .TKN_TYPE and
                 tokens[@intCast(id_pos - 1)].token_type == .TKN_IDENTIFIER)
             {
-                // Handle pattern: identifier -> type -> assignment
                 try result.append(Variable{
                     .name = tokens[@intCast(id_pos - 1)].literal,
                     .value = Value{ .nothing = {} },
                     .type = .nothing,
+                    .mutable = false,
+                    .temp = false,
                 });
                 identifier_found = true;
             }
@@ -221,54 +222,100 @@ pub const Preprocessor = struct {
             return error.InvalidAssignment;
         }
 
-        // Add the value token if it exists
         var value_found = false;
 
-        // Check for an expression token after the assignment
         if (index + 1 < tokens.len and tokens[index + 1].token_type == .TKN_EXPRESSION) {
-            // For now, use a default value - in a real implementation, you'd evaluate the expression
             try result.append(Variable{
-                .name = "value",
-                .value = Value{ .int = 12 }, // Default value for expressions
+                .name = "value", // Placeholder name
+                .value = Value{ .int = 12 }, // Default for expressions for now
                 .type = .int,
+                .mutable = false,
+                .temp = false,
             });
             value_found = true;
-        }
-        // Check for a regular value token
-        else if (index + 1 < tokens.len and tokens[index + 1].token_type == .TKN_VALUE) {
+        } else if (index + 1 < tokens.len and tokens[index + 1].token_type == .TKN_VALUE) {
             try result.append(Variable{
-                .name = "value", // This name doesn't matter as it will be treated as value
+                .name = "value", // Placeholder
                 .value = tokens[index + 1].value,
                 .type = tokens[index + 1].value_type,
+                .mutable = false,
+                .temp = false,
             });
             value_found = true;
-        }
-        // Check for a variable lookup
-        else if (index + 1 < tokens.len and (tokens[index + 1].token_type == .TKN_IDENTIFIER or
+        } else if (index + 1 < tokens.len and (tokens[index + 1].token_type == .TKN_IDENTIFIER or
             tokens[index + 1].token_type == .TKN_GROUP or
             tokens[index + 1].token_type == .TKN_LOOKUP))
         {
-            // Handle the case where the value is another variable lookup
-            const lookup_path = try self.buildLookupPathForward(tokens, index + 1);
-            defer self.allocator.free(lookup_path);
+            const original_lookup_path = try self.buildLookupPathForward(tokens, index + 1);
+            defer self.allocator.free(original_lookup_path);
 
-            if (try self.getLookupValue(lookup_path)) |var_value| {
-                try result.append(var_value);
+            var resolved_rhs_variable: ?Variable = null;
+            const direct_lookup_result = self.getLookupValue(original_lookup_path);
+
+            if (direct_lookup_result) |var_value| {
+                resolved_rhs_variable = var_value;
+            } else |err| {
+                // Get the LHS groups by excluding the last item (which is the identifier)
+                const lhs_groups = if (result.items.len > 0) result.items[0 .. result.items.len - 1] else &[_]Variable{};
+
+                // Debug print the LHS groups
+                var lhs_str = std.ArrayList(u8).init(self.allocator);
+                defer lhs_str.deinit();
+                for (lhs_groups, 0..) |g, j| {
+                    if (j > 0) try lhs_str.appendSlice("->");
+                    try lhs_str.appendSlice(g.name);
+                }
+                printDebug("LHS groups: {s}\n", .{lhs_str.items});
+
+                // Check if the RHS path starts with our LHS groups
+                var lhs_prefix_matches_rhs_path = true;
+                if (original_lookup_path.len == 0 or lhs_groups.len == 0) {
+                    lhs_prefix_matches_rhs_path = false;
+                } else {
+                    for (lhs_groups, 0..) |lhs_group, k| {
+                        if (k >= original_lookup_path.len or !std.mem.eql(u8, lhs_group.name, original_lookup_path[k])) {
+                            lhs_prefix_matches_rhs_path = false;
+                            break;
+                        }
+                    }
+                }
+
+                // If we have a ScopeNotFound and the RHS path starts with our LHS groups,
+                // try to resolve the remainder from the root scope
+                if (err == error.ScopeNotFound and lhs_prefix_matches_rhs_path) {
+                    const tail_path = original_lookup_path[lhs_groups.len..];
+
+                    if (tail_path.len > 0) {
+                        printDebug("Trying to resolve tail path from root: {s}\n", .{tail_path[0]});
+                        const fallback_lookup_result = self.getLookupValue(tail_path);
+                        if (fallback_lookup_result) |fb_var_value| {
+                            resolved_rhs_variable = fb_var_value;
+                        } else |fb_err| {
+                            printError("Fallback lookup failed: {any}\n", .{fb_err});
+                        }
+                    }
+                }
+
+                if (resolved_rhs_variable == null) {
+                    printError("Value not found in lookup path\n", .{});
+                    return error.ValueNotFoundInLookupPath;
+                }
+            }
+
+            if (resolved_rhs_variable) |var_struct| {
+                try result.append(var_struct);
                 value_found = true;
             } else {
-                // Instead of returning an error, append a variable with "not found" indicator
-                printError("Warning: Value not found in lookup path, using default value\n", .{});
-                return error.ValueNotFoundInLookupPath;
+                printError("Internal error: RHS variable was not resolved\n", .{});
+                return error.InvalidAssignment;
             }
         }
 
-        // If no value was found, add a default value to ensure we have at least 2 elements
         if (!value_found) {
             printError("Warning: No value found after assignment, using default\n", .{});
             return error.NoValueFoundAfterAssignment;
         }
 
-        // Create a slice that will be owned by the caller
         const array = try self.allocator.alloc(Variable, result.items.len);
         for (result.items, 0..) |item, y| {
             array[y] = item;
@@ -294,7 +341,17 @@ pub const Preprocessor = struct {
                 .name = identifier,
                 .value = value_item.value,
                 .type = value_item.type,
+                .mutable = value_item.mutable,
+                .temp = value_item.temp,
             };
+
+            // Check if variable exists and is immutable
+            if (self.root_scope.variables.get(identifier)) |existing_var| {
+                if (!existing_var.mutable) {
+                    printError("Error: Cannot reassign immutable variable '{s}'\n", .{identifier});
+                    return error.ImmutableVariable;
+                }
+            }
 
             try self.root_scope.variables.put(identifier, variable);
             return;
@@ -313,11 +370,21 @@ pub const Preprocessor = struct {
             current_scope = current_scope.nested_scopes.get(group.name).?;
         }
 
+        // Check if variable exists and is immutable
+        if (current_scope.variables.get(identifier)) |existing_var| {
+            if (!existing_var.mutable) {
+                printError("Error: Cannot reassign immutable variable '{s}'\n", .{identifier});
+                return error.ImmutableVariable;
+            }
+        }
+
         // Create/update the variable
         const variable = Variable{
             .name = identifier,
             .value = value_item.value,
             .type = value_item.type,
+            .mutable = value_item.mutable,
+            .temp = value_item.temp,
         };
 
         try current_scope.variables.put(identifier, variable);
@@ -375,6 +442,7 @@ pub const Preprocessor = struct {
             }
         }.get;
 
+        // First pass: Convert to postfix notation
         for (tokens) |token| {
             if (token.token_type == .TKN_VALUE) {
                 output.append(token) catch unreachable;
@@ -408,12 +476,6 @@ pub const Preprocessor = struct {
                 if (stack.items.len > 0 and stack.items[stack.items.len - 1].token_type == .TKN_LPAREN) {
                     _ = stack.orderedRemove(stack.items.len - 1);
                 }
-            } else if (token.token_type == .TKN_ARROW) {
-                printError("No arrow allowed in expression[{d}:{d}] {s}\n", .{ token.line_number, token.token_number, token.literal });
-                return error.InvalidExpression;
-            } else {
-                // Skip tokens that aren't part of the expression
-                continue;
             }
         }
 
@@ -463,21 +525,29 @@ pub const Preprocessor = struct {
                         return error.NotEnoughOperands;
                     }
 
-                    // Get the operands (but don't remove them yet)
                     const b_index = result_stack.items.len - 1;
                     const a_index = result_stack.items.len - 2;
 
                     const b = result_stack.items[b_index];
                     const a = result_stack.items[a_index];
 
-                    // For simplicity, we'll assume all values are integers for now
-                    var a_val: i32 = 0;
-                    var b_val: i32 = 0;
+                    // Determine if we need to use float arithmetic
+                    var use_float = false;
+                    var a_float: f64 = 0;
+                    var b_float: f64 = 0;
+                    var a_int: i32 = 0;
+                    var b_int: i32 = 0;
 
-                    // Extract integer values
+                    // Extract values and determine operation type
                     switch (a) {
-                        .int => |val| a_val = val,
-                        .float => |val| a_val = @intFromFloat(val),
+                        .int => |val| {
+                            a_int = val;
+                            a_float = @floatFromInt(val);
+                        },
+                        .float => |val| {
+                            use_float = true;
+                            a_float = val;
+                        },
                         .string, .bool, .nothing => {
                             printError("Warning: Non-numeric value in expression, using 0\n", .{});
                             return error.NonNumericValue;
@@ -485,53 +555,79 @@ pub const Preprocessor = struct {
                     }
 
                     switch (b) {
-                        .int => |val| b_val = val,
-                        .float => |val| b_val = @intFromFloat(val),
+                        .int => |val| {
+                            b_int = val;
+                            b_float = @floatFromInt(val);
+                        },
+                        .float => |val| {
+                            use_float = true;
+                            b_float = val;
+                        },
                         .string, .bool, .nothing => {
                             printError("Warning: Non-numeric value in expression, using 0\n", .{});
                             return error.NonNumericValue;
                         },
                     }
 
-                    var result: i32 = 0;
-
-                    switch (token.token_type) {
-                        .TKN_PLUS => result = a_val + b_val,
-                        .TKN_MINUS => result = a_val - b_val,
-                        .TKN_STAR => result = a_val * b_val,
-                        .TKN_SLASH => {
-                            if (b_val == 0) {
-                                printError("Error: Division by zero\n", .{});
-                                return error.DivisionByZero;
-                            } else {
-                                result = @divTrunc(a_val, b_val);
-                            }
-                        },
-                        .TKN_PERCENT => {
-                            if (b_val == 0) {
-                                printError("Error: Modulo by zero\n", .{});
-                                return error.ModuloByZero;
-                            } else {
-                                result = @mod(a_val, b_val);
-                            }
-                        },
-                        .TKN_POWER => {
-                            // Simple power implementation
-                            result = 1;
-                            var exp = b_val;
-                            while (exp > 0) : (exp -= 1) {
-                                result *= a_val;
-                            }
-                        },
-                        else => {},
-                    }
-
-                    // Remove the two operands
+                    // Remove the operands
                     _ = result_stack.orderedRemove(b_index);
                     _ = result_stack.orderedRemove(a_index);
 
-                    // Push the result
-                    result_stack.append(Value{ .int = result }) catch unreachable;
+                    // Perform the operation
+                    if (use_float) {
+                        const float_result: f64 = switch (token.token_type) {
+                            .TKN_PLUS => a_float + b_float,
+                            .TKN_MINUS => a_float - b_float,
+                            .TKN_STAR => a_float * b_float,
+                            .TKN_SLASH => {
+                                if (b_float == 0) {
+                                    printError("Error: Division by zero\n", .{});
+                                    return error.DivisionByZero;
+                                }
+                                return Value{ .float = a_float / b_float };
+                            },
+                            .TKN_PERCENT => {
+                                if (b_float == 0) {
+                                    printError("Error: Modulo by zero\n", .{});
+                                    return error.ModuloByZero;
+                                }
+                                return Value{ .float = @mod(a_float, b_float) };
+                            },
+                            .TKN_POWER => std.math.pow(f64, a_float, b_float),
+                            else => unreachable,
+                        };
+                        try result_stack.append(Value{ .float = float_result });
+                    } else {
+                        const int_result: i32 = switch (token.token_type) {
+                            .TKN_PLUS => a_int + b_int,
+                            .TKN_MINUS => a_int - b_int,
+                            .TKN_STAR => a_int * b_int,
+                            .TKN_SLASH => {
+                                if (b_int == 0) {
+                                    printError("Error: Division by zero\n", .{});
+                                    return error.DivisionByZero;
+                                }
+                                return Value{ .int = @divTrunc(a_int, b_int) };
+                            },
+                            .TKN_PERCENT => {
+                                if (b_int == 0) {
+                                    printError("Error: Modulo by zero\n", .{});
+                                    return error.ModuloByZero;
+                                }
+                                return Value{ .int = @mod(a_int, b_int) };
+                            },
+                            .TKN_POWER => blk: {
+                                var result: i32 = 1;
+                                var exp = b_int;
+                                while (exp > 0) : (exp -= 1) {
+                                    result *= a_int;
+                                }
+                                break :blk result;
+                            },
+                            else => unreachable,
+                        };
+                        try result_stack.append(Value{ .int = int_result });
+                    }
                 },
                 else => {},
             }
@@ -539,8 +635,7 @@ pub const Preprocessor = struct {
 
         // Return the final result
         if (result_stack.items.len > 0) {
-            const final_result = result_stack.items[result_stack.items.len - 1];
-            return final_result;
+            return result_stack.items[result_stack.items.len - 1];
         } else {
             printError("Error: Empty expression result\n", .{});
             return Value{ .int = 0 };
@@ -566,7 +661,7 @@ pub const Preprocessor = struct {
 
                         if (tokens[i + 1].expression) |expression| {
                             // Safely evaluate the expression
-                            const result = self.evaluateExpression(expression);
+                            const result = try self.evaluateExpression(expression);
 
                             // Update the assignment with the expression result
                             if (assignment.len >= 2) {
@@ -574,8 +669,14 @@ pub const Preprocessor = struct {
                                 defer self.allocator.free(modified_assignment);
 
                                 // Replace the value part with our calculated result
-                                modified_assignment[modified_assignment.len - 1].value = try result;
-                                modified_assignment[modified_assignment.len - 1].type = .int; // Assuming int for now
+                                modified_assignment[modified_assignment.len - 1].value = result;
+                                modified_assignment[modified_assignment.len - 1].type = switch (result) {
+                                    .int => .int,
+                                    .float => .float,
+                                    .string => .string,
+                                    .bool => .bool,
+                                    .nothing => .nothing,
+                                };
 
                                 try self.assignValue(modified_assignment);
                             } else {
@@ -672,50 +773,78 @@ pub const Preprocessor = struct {
     }
 
     // Dump all variables to a writer
-    pub fn dumpVariables(self: *Preprocessor, writer: anytype, allocator: std.mem.Allocator) !void {
-        // Write root scope variables
-        try writer.print("// Root scope variables\n", .{});
+    pub fn dumpVariables(self: *Preprocessor, allocator: std.mem.Allocator) !void {
+        printDebug("\n+====================================+\n", .{});
+        printDebug("|          VARIABLE INSPECTOR          |\n", .{});
+        printDebug("+====================================+\n\n", .{});
+
+        // Root scope variables
+        printDebug("ROOT SCOPE:\n", .{});
         var root_it = self.root_scope.variables.iterator();
         while (root_it.next()) |entry| {
             const var_value = entry.value_ptr.*;
-            try writeVariableToWriter(writer, "", entry.key_ptr.*, var_value);
+            try dumpVariable("", entry.key_ptr.*, var_value);
         }
 
-        // Write nested scopes recursively
-        try self.dumpNestedScopes(writer, self.root_scope, "", allocator);
-    }
-
-    fn writeVariableToWriter(writer: anytype, prefix: []const u8, name: []const u8, var_value: Variable) !void {
-        try writer.print("{s}{s} : {s} = ", .{ prefix, name, var_value.type.toString() });
-
-        switch (var_value.type) {
-            .int => try writer.print("{d}\n", .{var_value.value.int}),
-            .float => try writer.print("{d:.2}\n", .{var_value.value.float}),
-            .string => try writer.print("\"{s}\"\n", .{var_value.value.string}),
-            .bool => try writer.print("{s}\n", .{if (var_value.value.bool) "TRUE" else "FALSE"}),
-            .nothing => try writer.print("(nothing)\n", .{}),
+        // Nested scopes
+        var scope_it = self.root_scope.nested_scopes.iterator();
+        while (scope_it.next()) |scope_entry| {
+            try dumpScope(scope_entry.key_ptr.*, scope_entry.value_ptr.*, "", allocator);
         }
+
+        printDebug("\n+====================================+\n", .{});
+        printDebug("|          END OF INSPECTION          |\n", .{});
+        printDebug("+====================================+\n\n", .{});
     }
 
-    fn dumpNestedScopes(self: *Preprocessor, writer: anytype, scope: Scope, prefix: []const u8, allocator: std.mem.Allocator) !void {
+    fn dumpScope(scope_name: []const u8, scope: *Scope, prefix: []const u8, allocator: std.mem.Allocator) !void {
+        const new_prefix = try std.fmt.allocPrint(allocator, "{s}{s}->", .{ prefix, scope_name });
+        defer allocator.free(new_prefix);
+
+        printDebug("\n.----------------------------------------.\n", .{});
+        printDebug("| SCOPE: {s}\n", .{new_prefix});
+        printDebug("|----------------------------------------|\n", .{});
+
+        // Variables in this scope
+        var var_it = scope.variables.iterator();
+        while (var_it.next()) |entry| {
+            const var_value = entry.value_ptr.*;
+            try dumpVariable(new_prefix, entry.key_ptr.*, var_value);
+        }
+
+        // Nested scopes
         var nested_it = scope.nested_scopes.iterator();
-        while (nested_it.next()) |entry| {
-            const scope_name = entry.key_ptr.*;
-            const new_prefix = try std.fmt.allocPrint(allocator, "{s}{s}->", .{ prefix, scope_name });
-            defer allocator.free(new_prefix);
-
-            try writer.print("\n// {s} scope variables\n", .{new_prefix});
-
-            const nested_scope = entry.value_ptr.*;
-            var vars_it = nested_scope.variables.iterator();
-            while (vars_it.next()) |var_entry| {
-                const var_value = var_entry.value_ptr.*;
-                try writeVariableToWriter(writer, new_prefix, var_entry.key_ptr.*, var_value);
-            }
-
-            // Recursively write sub-scopes
-            try self.dumpNestedScopes(writer, nested_scope.*, new_prefix, allocator);
+        while (nested_it.next()) |nested_entry| {
+            try dumpScope(nested_entry.key_ptr.*, nested_entry.value_ptr.*, new_prefix, allocator);
         }
+    }
+
+    fn dumpVariable(prefix: []const u8, name: []const u8, var_value: Variable) !void {
+        const full_name = if (prefix.len > 0)
+            try std.fmt.allocPrint(std.heap.page_allocator, "{s}{s}", .{ prefix, name })
+        else
+            name;
+        defer if (prefix.len > 0) std.heap.page_allocator.free(full_name);
+
+        printDebug("|----------------------------------------|\n", .{});
+        printDebug("| {s}\n", .{full_name});
+        printDebug("| Type: {s}\n", .{var_value.type.toString()});
+
+        printDebug("| Value: ", .{});
+        switch (var_value.type) {
+            .int => printDebug("{d}", .{var_value.value.int}),
+            .float => printDebug("{d:.2}", .{var_value.value.float}),
+            .string => printDebug("\"{s}\"", .{var_value.value.string}),
+            .bool => printDebug("{s}", .{if (var_value.value.bool) "true" else "false"}),
+            .nothing => printDebug("(nothing)", .{}),
+        }
+        printDebug("\n", .{});
+
+        printDebug("| Status: {s}{s}\n", .{
+            if (var_value.mutable) "mutable" else "immutable",
+            if (var_value.temp) " (temporary)" else "",
+        });
+        printDebug("`----------------------------------------'\n", .{});
     }
 
     // Handle inspection tokens (?) more accurately -
