@@ -12,5 +12,4 @@ person -> : int {
     job -> salary = 15000  + raise
     job -> title : string = "Bartender"
     name : string = man
-
 }

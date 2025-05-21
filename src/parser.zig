@@ -3,6 +3,7 @@ const Token = @import("token.zig").Token;
 const TokenKind = @import("token.zig").TokenKind;
 const ValueType = @import("token.zig").ValueType;
 const Value = @import("token.zig").Value;
+const Reporting = @import("reporting.zig");
 const printError = std.debug.print;
 const printDebug = std.debug.print;
 const printInspect = std.debug.print;
@@ -20,6 +21,8 @@ pub const ParsedToken = struct {
     literal: []const u8,
     line_number: usize,
     token_number: usize,
+    is_mutable: bool,
+    is_temporary: bool,
 
     pub fn deinit(self: *ParsedToken, allocator: std.mem.Allocator) void {
         if (self.expression) |expr| {
@@ -34,6 +37,8 @@ pub const Parser = struct {
     groups: std.ArrayList(Group),
     parsed_tokens: std.ArrayList(ParsedToken),
     allocator: std.mem.Allocator,
+    is_mutable: bool,
+    is_temporary: bool,
 
     pub fn init(allocator: std.mem.Allocator, tokens: []Token) Parser {
         return Parser{
@@ -41,6 +46,8 @@ pub const Parser = struct {
             .groups = std.ArrayList(Group).init(allocator),
             .parsed_tokens = std.ArrayList(ParsedToken).init(allocator),
             .allocator = allocator,
+            .is_mutable = false,
+            .is_temporary = false,
         };
     }
 
@@ -69,6 +76,27 @@ pub const Parser = struct {
             current_index += 1;
 
             switch (current_token.token_type) {
+                .TKN_MUTABLE => {
+                    if (!TokenKind.compare(self.tokens[current_index].token_type, .TKN_IDENTIFIER) and !TokenKind.compare(self.tokens[current_index].token_type, .TKN_TEMPORARY)) {
+                        Reporting.throwError("MUTABLE must be followed by an identifier or temporary\n", .{});
+                        return error.InvalidMUTABLE;
+                    }
+                    if (TokenKind.compare(self.tokens[current_index + 1].token_type, .TKN_ARROW)) {
+                        Reporting.throwError("MUTABLE cannot apply to a group\n", .{});
+                        return error.InvalidMUTABLE;
+                    }
+                    self.is_mutable = true;
+                },
+                .TKN_TEMPORARY => {
+                    if (TokenKind.compare(self.tokens[current_index].token_type, .TKN_MUTABLE)) {
+                        Reporting.log("\nalways use !~ not ~!", .{});
+                    }
+                    if (!TokenKind.compare(self.tokens[current_index].token_type, .TKN_IDENTIFIER)) {
+                        Reporting.throwError("TEMPORARY must be followed by an identifier\n", .{});
+                        return error.InvalidTEMPORARY;
+                    }
+                    self.is_temporary = true;
+                },
                 .TKN_IDENTIFIER => {
                     if (self.tokens[current_index].token_type == .TKN_ARROW) {
                         if (self.tokens[current_index + 1].token_type == .TKN_LBRACE) {
@@ -76,44 +104,54 @@ pub const Parser = struct {
                         } else if (self.tokens[current_index + 1].token_type == .TKN_TYPE_ASSIGN) {
                             continue;
                         }
-                        try self.parsed_tokens.append(ParsedToken{ .token_type = .TKN_GROUP, .literal = current_token.literal, .expression = null, .value_type = .nothing, .value = .{ .nothing = {} }, .line_number = current_token.line_number, .token_number = current_token.token_number });
+                        try self.parsed_tokens.append(ParsedToken{ .token_type = .TKN_GROUP, .literal = current_token.literal, .expression = null, .value_type = .nothing, .value = .{ .nothing = {} }, .line_number = current_token.line_number, .token_number = current_token.token_number, .is_mutable = false, .is_temporary = false });
                         continue;
                     }
                     if (self.groups.items.len > 0) {
                         for (self.groups.items) |group| {
-                            try self.parsed_tokens.append(ParsedToken{ .token_type = .TKN_GROUP, .literal = group.name, .expression = null, .value_type = .nothing, .value = .{ .nothing = {} }, .line_number = current_token.line_number, .token_number = current_token.token_number });
+                            try self.parsed_tokens.append(ParsedToken{ .token_type = .TKN_GROUP, .literal = group.name, .expression = null, .value_type = .nothing, .value = .{ .nothing = {} }, .line_number = current_token.line_number, .token_number = current_token.token_number, .is_mutable = false, .is_temporary = false });
                         }
                     }
                     if (self.tokens[current_index].token_type == .TKN_ARROW) {
                         if (self.tokens[current_index + 1].token_type == .TKN_LBRACE) {
                             continue;
                         }
-                        try self.parsed_tokens.append(ParsedToken{ .token_type = .TKN_GROUP, .literal = current_token.literal, .expression = null, .value_type = .nothing, .value = .{ .nothing = {} }, .line_number = current_token.line_number, .token_number = current_token.token_number });
+                        try self.parsed_tokens.append(ParsedToken{ .token_type = .TKN_GROUP, .literal = current_token.literal, .expression = null, .value_type = .nothing, .value = .{ .nothing = {} }, .line_number = current_token.line_number, .token_number = current_token.token_number, .is_mutable = false, .is_temporary = false });
                         continue;
                     }
+
                     if (self.tokens[current_index].token_type == .TKN_TYPE_ASSIGN or self.tokens[current_index].token_type == .TKN_VALUE_ASSIGN or self.tokens[current_index].token_type == .TKN_NEWLINE or self.tokens[current_index].token_type == .TKN_INSPECT) {
-                        if (has_equals) {
-                            try self.parsed_tokens.append(ParsedToken{ .token_type = .TKN_LOOKUP, .literal = current_token.literal, .expression = null, .value_type = .nothing, .value = .{ .nothing = {} }, .line_number = current_token.line_number, .token_number = current_token.token_number });
-                        } else {
-                            try self.parsed_tokens.append(ParsedToken{ .token_type = .TKN_IDENTIFIER, .literal = current_token.literal, .expression = null, .value_type = .nothing, .value = .{ .nothing = {} }, .line_number = current_token.line_number, .token_number = current_token.token_number });
-                        }
+                        try self.parsed_tokens.append(ParsedToken{ .token_type = .TKN_IDENTIFIER, .literal = current_token.literal, .expression = null, .value_type = .nothing, .value = .{ .nothing = {} }, .line_number = current_token.line_number, .token_number = current_token.token_number, .is_mutable = self.is_mutable, .is_temporary = self.is_temporary });
                         if (self.tokens[current_index].token_type == .TKN_TYPE_ASSIGN) {
                             continue;
                         }
                         if (self.groups.items.len > 0) {
                             if (self.groups.items[self.groups.items.len - 1].type) |t| {
-                                try self.parsed_tokens.append(ParsedToken{ .token_type = .TKN_TYPE, .literal = t, .expression = null, .value_type = .nothing, .value = .{ .nothing = {} }, .line_number = current_token.line_number, .token_number = current_token.token_number });
+                                try self.parsed_tokens.append(ParsedToken{ .token_type = .TKN_TYPE, .literal = t, .expression = null, .value_type = .nothing, .value = .{ .nothing = {} }, .line_number = current_token.line_number, .token_number = current_token.token_number, .is_mutable = false, .is_temporary = false });
                             }
                         }
                         continue;
                     }
                 },
+                .TKN_LOOKUP => {
+                    if (self.tokens[current_index].token_type == .TKN_ARROW) {
+                        if (self.tokens[current_index + 1].token_type == .TKN_LBRACE) {
+                            continue;
+                        } else if (self.tokens[current_index + 1].token_type == .TKN_TYPE_ASSIGN) {
+                            continue;
+                        }
+                        try self.parsed_tokens.append(ParsedToken{ .token_type = .TKN_GROUP, .literal = current_token.literal, .expression = null, .value_type = .nothing, .value = .{ .nothing = {} }, .line_number = current_token.line_number, .token_number = current_token.token_number, .is_mutable = false, .is_temporary = false });
+                        continue;
+                    }
+                    try self.parsed_tokens.append(ParsedToken{ .token_type = .TKN_LOOKUP, .literal = current_token.literal, .expression = null, .value_type = .nothing, .value = .{ .nothing = {} }, .line_number = current_token.line_number, .token_number = current_token.token_number, .is_mutable = false, .is_temporary = false });
+                    continue;
+                },
                 .TKN_RBRACKET => {
-                    try self.parsed_tokens.append(ParsedToken{ .token_type = .TKN_RBRACKET, .literal = current_token.literal, .expression = null, .value_type = .nothing, .value = .{ .nothing = {} }, .line_number = current_token.line_number, .token_number = current_token.token_number });
+                    try self.parsed_tokens.append(ParsedToken{ .token_type = .TKN_RBRACKET, .literal = current_token.literal, .expression = null, .value_type = .nothing, .value = .{ .nothing = {} }, .line_number = current_token.line_number, .token_number = current_token.token_number, .is_mutable = false, .is_temporary = false });
                     continue;
                 },
                 .TKN_LBRACKET => {
-                    try self.parsed_tokens.append(ParsedToken{ .token_type = .TKN_LBRACKET, .literal = current_token.literal, .expression = null, .value_type = .nothing, .value = .{ .nothing = {} }, .line_number = current_token.line_number, .token_number = current_token.token_number });
+                    try self.parsed_tokens.append(ParsedToken{ .token_type = .TKN_LBRACKET, .literal = current_token.literal, .expression = null, .value_type = .nothing, .value = .{ .nothing = {} }, .line_number = current_token.line_number, .token_number = current_token.token_number, .is_mutable = false, .is_temporary = false });
                     continue;
                 },
                 .TKN_LBRACE => {
@@ -143,7 +181,7 @@ pub const Parser = struct {
                     defer assign_line.deinit();
                     const if_expression = ifExpression(assign_line.items);
                     if (if_expression) {
-                        try self.parsed_tokens.append(ParsedToken{ .token_type = .TKN_VALUE_ASSIGN, .literal = current_token.literal, .expression = null, .value_type = .nothing, .value = .{ .nothing = {} }, .line_number = assign_line.items[0].line_number, .token_number = current_token.token_number });
+                        try self.parsed_tokens.append(ParsedToken{ .token_type = .TKN_VALUE_ASSIGN, .literal = current_token.literal, .expression = null, .value_type = .nothing, .value = .{ .nothing = {} }, .line_number = assign_line.items[0].line_number, .token_number = current_token.token_number, .is_mutable = false, .is_temporary = false });
 
                         // Clone the tokens to ensure they remain valid
                         var expression_tokens = try self.allocator.alloc(Token, assign_line.items.len);
@@ -153,7 +191,7 @@ pub const Parser = struct {
 
                         // Only add expression tokens if there are actually tokens to process
                         if (expression_tokens.len > 0) {
-                            try self.parsed_tokens.append(ParsedToken{ .token_type = .TKN_EXPRESSION, .literal = "Expression", .value_type = .nothing, .value = .{ .nothing = {} }, .expression = expression_tokens, .line_number = assign_line.items[0].line_number, .token_number = current_token.token_number });
+                            try self.parsed_tokens.append(ParsedToken{ .token_type = .TKN_EXPRESSION, .literal = "Expression", .value_type = .nothing, .value = .{ .nothing = {} }, .expression = expression_tokens, .line_number = assign_line.items[0].line_number, .token_number = current_token.token_number, .is_mutable = false, .is_temporary = false });
                         } else {
                             // If no expression tokens, don't add an expression token and free the allocated memory
                             self.allocator.free(expression_tokens);
@@ -161,7 +199,7 @@ pub const Parser = struct {
                             return error.EmptyExpression;
                         }
                     } else {
-                        try self.parsed_tokens.append(ParsedToken{ .token_type = .TKN_VALUE_ASSIGN, .literal = current_token.literal, .expression = null, .value_type = .nothing, .value = .{ .nothing = {} }, .line_number = assign_line.items[0].line_number, .token_number = current_token.token_number });
+                        try self.parsed_tokens.append(ParsedToken{ .token_type = .TKN_VALUE_ASSIGN, .literal = current_token.literal, .expression = null, .value_type = .nothing, .value = .{ .nothing = {} }, .line_number = assign_line.items[0].line_number, .token_number = current_token.token_number, .is_mutable = false, .is_temporary = false });
                     }
                     continue;
                 },
@@ -174,7 +212,7 @@ pub const Parser = struct {
                 },
                 .TKN_NEWLINE => {
                     has_equals = false;
-                    try self.parsed_tokens.append(ParsedToken{ .token_type = .TKN_NEWLINE, .literal = current_token.literal, .expression = null, .value_type = .nothing, .value = .{ .nothing = {} }, .line_number = current_token.line_number, .token_number = current_token.token_number });
+                    try self.parsed_tokens.append(ParsedToken{ .token_type = .TKN_NEWLINE, .literal = current_token.literal, .expression = null, .value_type = .nothing, .value = .{ .nothing = {} }, .line_number = current_token.line_number, .token_number = current_token.token_number, .is_mutable = false, .is_temporary = false });
                     continue;
                 },
                 .TKN_TYPE => {
@@ -182,67 +220,78 @@ pub const Parser = struct {
                         // this is a group -> : typing which would have been handled in the group -> identifier parsing
                         continue;
                     }
-                    try self.parsed_tokens.append(ParsedToken{ .token_type = .TKN_TYPE, .literal = current_token.literal, .expression = null, .value_type = .nothing, .value = .{ .nothing = {} }, .line_number = current_token.line_number, .token_number = current_token.token_number });
+                    try self.parsed_tokens.append(ParsedToken{ .token_type = .TKN_TYPE, .literal = current_token.literal, .expression = null, .value_type = .nothing, .value = .{ .nothing = {} }, .line_number = current_token.line_number, .token_number = current_token.token_number, .is_mutable = false, .is_temporary = false });
                     continue;
                 },
                 .TKN_VALUE => {
                     // Parse the value from the literal based on the token's value type
                     const parsed_value = parseValueFromLiteral(current_token.literal, current_token.value_type);
-                    try self.parsed_tokens.append(ParsedToken{ .token_type = .TKN_VALUE, .literal = current_token.literal, .expression = null, .value_type = current_token.value_type, .value = parsed_value, .line_number = current_token.line_number, .token_number = current_token.token_number });
+                    try self.parsed_tokens.append(ParsedToken{ .token_type = .TKN_VALUE, .literal = current_token.literal, .expression = null, .value_type = current_token.value_type, .value = parsed_value, .line_number = current_token.line_number, .token_number = current_token.token_number, .is_mutable = false, .is_temporary = false });
                     continue;
                 },
                 .TKN_INSPECT => {
-                    try self.parsed_tokens.append(ParsedToken{ .token_type = .TKN_INSPECT, .literal = current_token.literal, .expression = null, .value_type = .nothing, .value = .{ .nothing = {} }, .line_number = current_token.line_number, .token_number = current_token.token_number });
+                    try self.parsed_tokens.append(ParsedToken{ .token_type = .TKN_INSPECT, .literal = current_token.literal, .expression = null, .value_type = .nothing, .value = .{ .nothing = {} }, .line_number = current_token.line_number, .token_number = current_token.token_number, .is_mutable = false, .is_temporary = false });
                     continue;
                 },
                 .TKN_ARROW => {
                     continue;
                 },
                 .TKN_PLUS => {
-                    try self.parsed_tokens.append(ParsedToken{ .token_type = .TKN_PLUS, .literal = current_token.literal, .expression = null, .value_type = .nothing, .value = .{ .nothing = {} }, .line_number = current_token.line_number, .token_number = current_token.token_number });
+                    try self.parsed_tokens.append(ParsedToken{ .token_type = .TKN_PLUS, .literal = current_token.literal, .expression = null, .value_type = .nothing, .value = .{ .nothing = {} }, .line_number = current_token.line_number, .token_number = current_token.token_number, .is_mutable = false, .is_temporary = false });
                     continue;
                 },
                 .TKN_MINUS => {
-                    try self.parsed_tokens.append(ParsedToken{ .token_type = .TKN_MINUS, .literal = current_token.literal, .expression = null, .value_type = .nothing, .value = .{ .nothing = {} }, .line_number = current_token.line_number, .token_number = current_token.token_number });
+                    try self.parsed_tokens.append(ParsedToken{ .token_type = .TKN_MINUS, .literal = current_token.literal, .expression = null, .value_type = .nothing, .value = .{ .nothing = {} }, .line_number = current_token.line_number, .token_number = current_token.token_number, .is_mutable = false, .is_temporary = false });
                     continue;
                 },
                 .TKN_STAR => {
-                    try self.parsed_tokens.append(ParsedToken{ .token_type = .TKN_STAR, .literal = current_token.literal, .expression = null, .value_type = .nothing, .value = .{ .nothing = {} }, .line_number = current_token.line_number, .token_number = current_token.token_number });
+                    try self.parsed_tokens.append(ParsedToken{ .token_type = .TKN_STAR, .literal = current_token.literal, .expression = null, .value_type = .nothing, .value = .{ .nothing = {} }, .line_number = current_token.line_number, .token_number = current_token.token_number, .is_mutable = false, .is_temporary = false });
                     continue;
                 },
                 .TKN_SLASH => {
-                    try self.parsed_tokens.append(ParsedToken{ .token_type = .TKN_SLASH, .literal = current_token.literal, .expression = null, .value_type = .nothing, .value = .{ .nothing = {} }, .line_number = current_token.line_number, .token_number = current_token.token_number });
+                    try self.parsed_tokens.append(ParsedToken{ .token_type = .TKN_SLASH, .literal = current_token.literal, .expression = null, .value_type = .nothing, .value = .{ .nothing = {} }, .line_number = current_token.line_number, .token_number = current_token.token_number, .is_mutable = false, .is_temporary = false });
                     continue;
                 },
                 .TKN_PERCENT => {
-                    try self.parsed_tokens.append(ParsedToken{ .token_type = .TKN_PERCENT, .literal = current_token.literal, .expression = null, .value_type = .nothing, .value = .{ .nothing = {} }, .line_number = current_token.line_number, .token_number = current_token.token_number });
+                    try self.parsed_tokens.append(ParsedToken{ .token_type = .TKN_PERCENT, .literal = current_token.literal, .expression = null, .value_type = .nothing, .value = .{ .nothing = {} }, .line_number = current_token.line_number, .token_number = current_token.token_number, .is_mutable = false, .is_temporary = false });
                     continue;
                 },
                 .TKN_POWER => {
-                    try self.parsed_tokens.append(ParsedToken{ .token_type = .TKN_POWER, .literal = current_token.literal, .expression = null, .value_type = .nothing, .value = .{ .nothing = {} }, .line_number = current_token.line_number, .token_number = current_token.token_number });
+                    try self.parsed_tokens.append(ParsedToken{ .token_type = .TKN_POWER, .literal = current_token.literal, .expression = null, .value_type = .nothing, .value = .{ .nothing = {} }, .line_number = current_token.line_number, .token_number = current_token.token_number, .is_mutable = false, .is_temporary = false });
                     continue;
                 },
                 .TKN_LPAREN => {
-                    try self.parsed_tokens.append(ParsedToken{ .token_type = .TKN_LPAREN, .literal = current_token.literal, .expression = null, .value_type = .nothing, .value = .{ .nothing = {} }, .line_number = current_token.line_number, .token_number = current_token.token_number });
+                    try self.parsed_tokens.append(ParsedToken{ .token_type = .TKN_LPAREN, .literal = current_token.literal, .expression = null, .value_type = .nothing, .value = .{ .nothing = {} }, .line_number = current_token.line_number, .token_number = current_token.token_number, .is_mutable = false, .is_temporary = false });
                     continue;
                 },
                 .TKN_RPAREN => {
-                    try self.parsed_tokens.append(ParsedToken{ .token_type = .TKN_RPAREN, .literal = current_token.literal, .expression = null, .value_type = .nothing, .value = .{ .nothing = {} }, .line_number = current_token.line_number, .token_number = current_token.token_number });
+                    try self.parsed_tokens.append(ParsedToken{ .token_type = .TKN_RPAREN, .literal = current_token.literal, .expression = null, .value_type = .nothing, .value = .{ .nothing = {} }, .line_number = current_token.line_number, .token_number = current_token.token_number, .is_mutable = false, .is_temporary = false });
                     continue;
                 },
                 .TKN_EOF => {
                     break;
                 },
-                else => unreachable,
+                else => {
+                    Reporting.throwError("Unknown token type in parser: {s}\n", .{@tagName(current_token.token_type)});
+                    unreachable;
+                },
             }
         }
     }
 
     pub fn dumpParser(self: *Parser) void {
         for (self.parsed_tokens.items) |token| {
+            const m = if (token.is_mutable) "mutable" else "immutable";
+            const t = if (token.is_temporary) "temporary" else "permanent";
             printDebug("{s} ", .{token.literal});
             printDebug("({s}) ", .{@tagName(token.token_type)});
-            printDebug("({s}) ", .{@tagName(token.value_type)});
+            if (token.token_type == .TKN_VALUE) {
+                printDebug("({s}) ", .{@tagName(token.value_type)});
+            }
+            if (token.token_type == .TKN_IDENTIFIER) {
+                printDebug("({s}) ", .{m});
+                printDebug("({s}) ", .{t});
+            }
             printDebug("\n", .{});
         }
     }

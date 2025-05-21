@@ -13,6 +13,8 @@ pub const Lexer = struct {
     tokens: std.ArrayList(token.Token),
     lines: std.ArrayList([]const u8),
     allocator: std.mem.Allocator,
+    // lets us know what side of the = sign we are ons
+    assignment_mode: bool,
 
     pub fn init(allocator: std.mem.Allocator, input: []const u8) !Lexer {
         var lexer = Lexer{
@@ -24,6 +26,7 @@ pub const Lexer = struct {
             .tokens = std.ArrayList(token.Token).init(allocator),
             .lines = std.ArrayList([]const u8).init(allocator),
             .allocator = allocator,
+            .assignment_mode = false,
         };
         try lexer.readLines();
         return lexer;
@@ -128,6 +131,7 @@ pub const Lexer = struct {
             .token_number = current_column,
         });
         self.token_count += 1;
+        self.assignment_mode = false;
     }
 
     pub fn tokenize(self: *Lexer) !void {
@@ -228,13 +232,23 @@ pub const Lexer = struct {
                         .token_number = current_column,
                     });
                 } else {
-                    try self.tokens.append(.{
-                        .literal = word,
-                        .token_type = .TKN_IDENTIFIER,
-                        .value_type = .nothing,
-                        .line_number = self.line,
-                        .token_number = current_column,
-                    });
+                    if (self.assignment_mode) {
+                        try self.tokens.append(.{
+                            .literal = word,
+                            .token_type = .TKN_LOOKUP,
+                            .value_type = .nothing,
+                            .line_number = self.line,
+                            .token_number = current_column,
+                        });
+                    } else {
+                        try self.tokens.append(.{
+                            .literal = word,
+                            .token_type = .TKN_IDENTIFIER,
+                            .value_type = .nothing,
+                            .line_number = self.line,
+                            .token_number = current_column,
+                        });
+                    }
                 }
 
                 self.token_count += 1;
@@ -266,6 +280,7 @@ pub const Lexer = struct {
                     });
                     self.token_count += 1;
                     self.advance();
+                    self.assignment_mode = true;
                 },
                 '-' => {
                     const current_column = self.column;
@@ -424,6 +439,30 @@ pub const Lexer = struct {
                     self.token_count += 1;
                     self.advance();
                 },
+                '!' => {
+                    const current_column = self.column;
+                    try self.tokens.append(.{
+                        .literal = "!",
+                        .token_type = .TKN_MUTABLE,
+                        .value_type = .nothing,
+                        .line_number = self.line,
+                        .token_number = current_column,
+                    });
+                    self.token_count += 1;
+                    self.advance();
+                },
+                '~' => {
+                    const current_column = self.column;
+                    try self.tokens.append(.{
+                        .literal = "~",
+                        .token_type = .TKN_TEMPORARY,
+                        .value_type = .nothing,
+                        .line_number = self.line,
+                        .token_number = current_column,
+                    });
+                    self.token_count += 1;
+                    self.advance();
+                },
 
                 '"' => try self.readString(),
                 'a'...'z', 'A'...'Z', '_' => {
@@ -475,13 +514,23 @@ pub const Lexer = struct {
                 .token_number = column,
             });
         } else {
-            try self.tokens.append(.{
-                .literal = word,
-                .token_type = .TKN_IDENTIFIER,
-                .value_type = .nothing,
-                .line_number = self.line,
-                .token_number = column,
-            });
+            if (self.assignment_mode) {
+                try self.tokens.append(.{
+                    .literal = word,
+                    .token_type = .TKN_LOOKUP,
+                    .value_type = .nothing,
+                    .line_number = self.line,
+                    .token_number = column,
+                });
+            } else {
+                try self.tokens.append(.{
+                    .literal = word,
+                    .token_type = .TKN_IDENTIFIER,
+                    .value_type = .nothing,
+                    .line_number = self.line,
+                    .token_number = column,
+                });
+            }
         }
         self.token_count += 1;
     }

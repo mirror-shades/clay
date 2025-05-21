@@ -1,4 +1,4 @@
-person -> age : int = 50
+person -> !age : int = 50
 person -> job -> title : string = "Painter"
 person -> job -> salary : float = 50000.00
 person -> name : string = "Bob"

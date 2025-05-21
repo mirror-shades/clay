@@ -179,8 +179,8 @@ pub const Preprocessor = struct {
                     .name = tokens[@intCast(i)].literal,
                     .value = Value{ .nothing = {} },
                     .type = .nothing,
-                    .mutable = false,
-                    .temp = false,
+                    .mutable = tokens[@intCast(i)].is_mutable,
+                    .temp = tokens[@intCast(i)].is_temporary,
                 });
             } else if (tokens[@intCast(i)].token_type == .TKN_NEWLINE or
                 tokens[@intCast(i)].token_type == .TKN_EOF)
@@ -189,8 +189,8 @@ pub const Preprocessor = struct {
             }
         }
 
-        // Look for the identifier after the last group
-        var identifier_found = false;
+        // Look for the lookup after the last group
+        var lookup_found = false;
         if (index > 0) {
             const id_pos: isize = @intCast(index - 1);
 
@@ -199,10 +199,11 @@ pub const Preprocessor = struct {
                     .name = tokens[@intCast(id_pos)].literal,
                     .value = Value{ .nothing = {} },
                     .type = .nothing,
-                    .mutable = false,
-                    .temp = false,
+                    .mutable = tokens[@intCast(id_pos)].is_mutable,
+                    .temp = tokens[@intCast(id_pos)].is_temporary,
                 });
-                identifier_found = true;
+                printDebug("buildAssignmentArray: Created identifier variable '{s}' with mutable={any}\n", .{ tokens[@intCast(id_pos)].literal, tokens[@intCast(id_pos)].is_mutable });
+                lookup_found = true;
             } else if (id_pos > 0 and tokens[@intCast(id_pos)].token_type == .TKN_TYPE and
                 tokens[@intCast(id_pos - 1)].token_type == .TKN_IDENTIFIER)
             {
@@ -210,15 +211,15 @@ pub const Preprocessor = struct {
                     .name = tokens[@intCast(id_pos - 1)].literal,
                     .value = Value{ .nothing = {} },
                     .type = .nothing,
-                    .mutable = false,
-                    .temp = false,
+                    .mutable = tokens[@intCast(id_pos - 1)].is_mutable,
+                    .temp = tokens[@intCast(id_pos - 1)].is_temporary,
                 });
-                identifier_found = true;
+                lookup_found = true;
             }
         }
 
-        if (!identifier_found) {
-            printError("Error: No identifier found before assignment at token {d}\n", .{index});
+        if (!lookup_found) {
+            printError("Error: No lookup found before assignment at token {d}\n", .{index});
             return error.InvalidAssignment;
         }
 
@@ -238,8 +239,8 @@ pub const Preprocessor = struct {
                 .name = "value", // Placeholder
                 .value = tokens[index + 1].value,
                 .type = tokens[index + 1].value_type,
-                .mutable = false,
-                .temp = false,
+                .mutable = tokens[index + 1].is_mutable,
+                .temp = tokens[index + 1].is_temporary,
             });
             value_found = true;
         } else if (index + 1 < tokens.len and (tokens[index + 1].token_type == .TKN_IDENTIFIER or
@@ -337,14 +338,18 @@ pub const Preprocessor = struct {
 
         if (groups.len == 0) {
             // Top-level assignment
+            printDebug("assignValue: Creating variable '{s}' with mutable={any} from identifier\n", .{ identifier, assignment_array[assignment_array.len - 2].mutable });
             const variable = Variable{
                 .name = identifier,
                 .value = value_item.value,
                 .type = value_item.type,
-                .mutable = value_item.mutable,
-                .temp = value_item.temp,
+                .mutable = assignment_array[assignment_array.len - 2].mutable, // Use identifier's mutability
+                .temp = assignment_array[assignment_array.len - 2].temp,
             };
 
+            std.debug.print("name {s}\n", .{variable.name});
+            std.debug.print("mutable {any}\n", .{variable.mutable});
+            std.debug.print("temp {any}\n", .{variable.temp});
             // Check if variable exists and is immutable
             if (self.root_scope.variables.get(identifier)) |existing_var| {
                 if (!existing_var.mutable) {
@@ -383,8 +388,8 @@ pub const Preprocessor = struct {
             .name = identifier,
             .value = value_item.value,
             .type = value_item.type,
-            .mutable = value_item.mutable,
-            .temp = value_item.temp,
+            .mutable = assignment_array[assignment_array.len - 2].mutable,
+            .temp = assignment_array[assignment_array.len - 2].temp,
         };
 
         try current_scope.variables.put(identifier, variable);
@@ -446,7 +451,7 @@ pub const Preprocessor = struct {
         for (tokens) |token| {
             if (token.token_type == .TKN_VALUE) {
                 output.append(token) catch unreachable;
-            } else if (token.token_type == .TKN_IDENTIFIER) {
+            } else if (token.token_type == .TKN_LOOKUP) {
                 // Handle variables by looking them up
                 output.append(token) catch unreachable;
             } else if (token.token_type == .TKN_PLUS or token.token_type == .TKN_MINUS or
@@ -502,7 +507,7 @@ pub const Preprocessor = struct {
                     };
                     result_stack.append(value) catch unreachable;
                 },
-                .TKN_IDENTIFIER => {
+                .TKN_LOOKUP => {
                     // Look up the variable value and push onto the stack
                     var found = false;
                     var it = self.root_scope.variables.iterator();

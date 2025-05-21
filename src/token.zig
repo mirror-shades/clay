@@ -44,7 +44,8 @@ pub const TokenKind = enum {
     TKN_LBRACKET, // [
     TKN_RBRACKET, // ]
     TKN_COMMA, // ,
-    TKN_CONST, // const
+    TKN_MUTABLE, // !
+    TKN_TEMPORARY, // ~
     TKN_VALUE, // value
     TKN_TYPE, // type
     TKN_GROUP, // group
@@ -76,13 +77,18 @@ pub const TokenKind = enum {
             .TKN_LBRACKET => "TKN_LBRACKET",
             .TKN_RBRACKET => "TKN_RBRACKET",
             .TKN_COMMA => "TKN_COMMA",
-            .TKN_CONST => "TKN_CONST",
+            .TKN_MUTABLE => "TKN_MUTABLE",
+            .TKN_TEMPORARY => "TKN_TEMPORARY",
             .TKN_TYPE => "TKN_TYPE",
             .TKN_GROUP => "TKN_GROUP",
             .TKN_VALUE => "TKN_VALUE",
             .TKN_INSPECT => "TKN_INSPECT",
             .TKN_LOOKUP => "TKN_LOOKUP",
         };
+    }
+
+    pub fn compare(self: TokenKind, other: TokenKind) bool {
+        return self == other;
     }
 };
 

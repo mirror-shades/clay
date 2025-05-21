@@ -1,5 +1,2 @@
-man = "Bob" 
-
-person -> {
-    name : string = man
-}
+x -> !y = 5
+x -> y = 6

@@ -1,5 +1,4 @@
 const std = @import("std");
-const debugPrint = std.debug.print;
 const lexer = @import("lexer.zig");
 const token = @import("token.zig");
 const Lexer = @import("lexer.zig").Lexer;
@@ -7,6 +6,8 @@ const Parser = @import("parser.zig").Parser;
 const ast = @import("ast.zig");
 const Preprocessor = @import("prepro.zig").Preprocessor;
 const Writer = @import("writer.zig");
+const Reporting = @import("reporting.zig");
+const src = Reporting.DebugSource;
 
 fn getDisplayText(token_kind: token.TokenKind, token_text: []const u8) []const u8 {
     return switch (token_kind) {
@@ -28,6 +29,8 @@ pub fn main() !void {
 
     var args = try std.process.argsWithAllocator(allocator);
     defer args.deinit();
+
+    var reporter = Reporting.Reporter.init(debug_lexer, debug_parser, debug_preprocessor);
 
     // Get the program name first before skipping
     const program_name = args.next() orelse "para";
@@ -53,17 +56,17 @@ pub fn main() !void {
 
     // Check if filename was provided
     const file_path = filename orelse {
-        std.log.err("Usage: {s} [options] <file>", .{program_name});
-        std.log.err("Options:", .{});
-        std.log.err("  --debug_lexer        Enable lexer debug output", .{});
-        std.log.err("  --debug_parser       Enable parser debug output", .{});
-        std.log.err("  --debug_preprocessor Enable preprocessor debug output", .{});
-        std.log.err("  --debug              Enable all debug output", .{});
+        Reporting.throwError("Usage: {s} [options] <file>", .{program_name});
+        Reporting.throwError("Options:", .{});
+        Reporting.throwError("  --debug_lexer        Enable lexer debug output", .{});
+        Reporting.throwError("  --debug_parser       Enable parser debug output", .{});
+        Reporting.throwError("  --debug_preprocessor Enable preprocessor debug output", .{});
+        Reporting.throwError("  --debug              Enable all debug output", .{});
         return;
     };
 
     if (!std.mem.endsWith(u8, file_path, ".para")) {
-        std.log.err("File must have a .para extension", .{});
+        Reporting.throwError("File must have a .para extension", .{});
         return;
     }
 
@@ -77,7 +80,7 @@ pub fn main() !void {
     const build_dir = "build";
     std.fs.cwd().access(build_dir, .{}) catch {
         std.fs.cwd().makeDir(build_dir) catch |e| {
-            std.log.err("Error creating build directory: {s}\n", .{@errorName(e)});
+            Reporting.throwError("Error creating build directory: {s}\n", .{@errorName(e)});
             return;
         };
     };
@@ -86,13 +89,13 @@ pub fn main() !void {
     defer para_lexer.deinit();
 
     para_lexer.tokenize() catch |e| {
-        std.log.err("Error tokenizing file: {s}\n", .{@errorName(e)});
+        Reporting.throwError("Error tokenizing file: {s}\n", .{@errorName(e)});
         para_lexer.dumpLexer();
         return;
     };
 
     if (debug_lexer) {
-        debugPrint("Successfully tokenized file: {s}\n", .{file_path});
+        reporter.logDebug(src.main, "\nSuccessfully tokenized file: {s}\n", .{file_path});
         para_lexer.dumpLexer();
     }
 
@@ -100,13 +103,13 @@ pub fn main() !void {
     defer para_parser.deinit();
 
     para_parser.parse() catch |e| {
-        std.log.err("Error parsing file: {s}\n", .{@errorName(e)});
+        Reporting.throwError("Error parsing file: {s}\n", .{@errorName(e)});
         para_parser.dumpParser();
         return;
     };
 
     if (debug_parser) {
-        debugPrint("Successfully parsed file: {s}\n", .{file_path});
+        reporter.logDebug(src.main, "\nSuccessfully parsed file: {s}\n", .{file_path});
         para_parser.dumpParser();
     }
 
@@ -116,7 +119,7 @@ pub fn main() !void {
     defer preprocessor.deinit();
 
     if (debug_preprocessor) {
-        debugPrint("preprocesser starting tokens: {s}\n", .{file_path});
+        reporter.logDebug(src.main, "starting tokens: {s}\n", .{file_path});
     }
 
     try preprocessor.process(para_parser.parsed_tokens.items);
@@ -125,32 +128,32 @@ pub fn main() !void {
     try Writer.writeVariableState(&preprocessor, "output.w.para", allocator);
 }
 
-fn printNode(node: *ast.Node, indent: usize) !void {
+fn printNode(node: *ast.Node, indent: usize, reporter: *Reporting.Reporter) !void {
     // Print indentation
     for (0..indent) |_| {
-        debugPrint("  ", .{});
+        reporter.logDebug("  ", .{});
     }
 
     // Print node info
-    debugPrint("{s}: {s}", .{ @tagName(node.type), node.name });
+    reporter.logDebug("{s}: {s}", .{ @tagName(node.type), node.name });
     if (node.is_const) {
-        debugPrint(" (const)", .{});
+        reporter.logDebug(" (const)", .{});
     }
     if (node.value) |value| {
         switch (value) {
-            .int => |i| debugPrint(" = {d}", .{i}),
-            .float => |f| debugPrint(" = {d}", .{f}),
-            .string => |s| debugPrint(" = {s}", .{s}),
-            .bool => |b| debugPrint(" = {}", .{b}),
+            .int => |i| reporter.logDebug(" = {d}", .{i}),
+            .float => |f| reporter.logDebug(" = {d}", .{f}),
+            .string => |s| reporter.logDebug(" = {s}", .{s}),
+            .bool => |b| reporter.logDebug(" = {}", .{b}),
             else => {},
         }
     }
-    debugPrint("\n", .{});
+    reporter.logDebug("\n", .{});
 
     // Print children with increased indentation
     if (node.children) |children| {
         for (children.items) |child| {
-            try printNode(child, indent + 1);
+            try printNode(child, indent + 1, reporter);
         }
     }
 }
