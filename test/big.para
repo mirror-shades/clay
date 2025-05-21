@@ -12,7 +12,7 @@ person -> {
     working : bool = true
 }
 
-person -> : int {
+person -> {
     age = 50
     name : string = "Bob"
 }

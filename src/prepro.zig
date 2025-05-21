@@ -179,8 +179,8 @@ pub const Preprocessor = struct {
                     .name = tokens[@intCast(i)].literal,
                     .value = Value{ .nothing = {} },
                     .type = .nothing,
-                    .mutable = tokens[@intCast(i)].is_mutable,
-                    .temp = tokens[@intCast(i)].is_temporary,
+                    .mutable = false,
+                    .temp = false,
                 });
             } else if (tokens[@intCast(i)].token_type == .TKN_NEWLINE or
                 tokens[@intCast(i)].token_type == .TKN_EOF)
@@ -235,11 +235,13 @@ pub const Preprocessor = struct {
             });
             value_found = true;
         } else if (index + 1 < tokens.len and tokens[index + 1].token_type == .TKN_VALUE) {
+            // Get the mutability from the identifier (last item in result)
+            const identifier = result.items[result.items.len - 1];
             try result.append(Variable{
                 .name = "value", // Placeholder
                 .value = tokens[index + 1].value,
                 .type = tokens[index + 1].value_type,
-                .mutable = tokens[index + 1].is_mutable,
+                .mutable = identifier.mutable, // Use the mutability from the identifier
                 .temp = tokens[index + 1].is_temporary,
             });
             value_found = true;
@@ -388,8 +390,8 @@ pub const Preprocessor = struct {
             .name = identifier,
             .value = value_item.value,
             .type = value_item.type,
-            .mutable = assignment_array[assignment_array.len - 2].mutable,
-            .temp = assignment_array[assignment_array.len - 2].temp,
+            .mutable = value_item.mutable,
+            .temp = value_item.temp,
         };
 
         try current_scope.variables.put(identifier, variable);
@@ -738,11 +740,11 @@ pub const Preprocessor = struct {
                             }
 
                             path_str = try self.allocator.dupe(u8, buffer.items);
-                            // Don't free yet: defer self.allocator.free(path_str);
                         } else {
                             path_str = try self.allocator.dupe(u8, "undefined");
-                            // Don't free yet: defer self.allocator.free(path_str);
                         }
+
+                        defer self.allocator.free(path_str);
 
                         if (try self.getLookupValue(path)) |var_value| {
                             printInspect("[{d}:{d}] {s} :{s} = ", .{
@@ -762,9 +764,6 @@ pub const Preprocessor = struct {
                         } else {
                             unreachable;
                         }
-
-                        // Free after using
-                        self.allocator.free(path_str);
                     }
                 },
                 else => {},

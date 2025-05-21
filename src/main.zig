@@ -95,7 +95,8 @@ pub fn main() !void {
     };
 
     if (debug_lexer) {
-        reporter.logDebug(src.main, "\nSuccessfully tokenized file: {s}\n", .{file_path});
+        Reporting.log("", .{});
+        reporter.logDebug(src.main, "Successfully tokenized file: {s}", .{file_path});
         para_lexer.dumpLexer();
     }
 
@@ -109,7 +110,8 @@ pub fn main() !void {
     };
 
     if (debug_parser) {
-        reporter.logDebug(src.main, "\nSuccessfully parsed file: {s}\n", .{file_path});
+        Reporting.log("", .{});
+        reporter.logDebug(src.main, "Successfully parsed file: {s}", .{file_path});
         para_parser.dumpParser();
     }
 
@@ -119,6 +121,7 @@ pub fn main() !void {
     defer preprocessor.deinit();
 
     if (debug_preprocessor) {
+        Reporting.log("", .{});
         reporter.logDebug(src.main, "starting tokens: {s}\n", .{file_path});
     }
 
