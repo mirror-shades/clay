@@ -1,7 +1,0 @@
-person-> age :int = 50 
-person-> retirement :int = Expression 50 + 20 
-raise = 500 
-man = "Bob" 
-job-> person-> salary :int = Expression 15000 + person-> raise :int 
-job-> person-> title :string = "Bartender" 
-person-> name :string = person-> man :int 
