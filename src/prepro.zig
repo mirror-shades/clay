@@ -163,7 +163,6 @@ pub const Preprocessor = struct {
         return result;
     }
 
-    // Build an array for assignment (similar to buildAssignmentArray in JS)
     pub fn buildAssignmentArray(self: *Preprocessor, tokens: []ParsedToken, index: usize) ![]Variable {
         var result = std.ArrayList(Variable).init(self.allocator);
         defer result.deinit();
@@ -367,44 +366,9 @@ pub const Preprocessor = struct {
         return result;
     }
 
-    // Assigns a value using the assignment array
-    pub fn assignValue(self: *Preprocessor, assignment_array: []Variable) !void {
-        // The structure should match the JS code: groups, identifier, value
-        if (assignment_array.len < 2) return error.InvalidAssignment;
-
-        // Last item is the value
-        const value_item = assignment_array[assignment_array.len - 1];
-        // Second to last is the identifier
-        const identifier = assignment_array[assignment_array.len - 2].name;
-        // Everything before the identifier is groups
-        const groups = assignment_array[0 .. assignment_array.len - 2];
-
-        if (groups.len == 0) {
-            // Top-level assignment
-            const variable = Variable{
-                .name = identifier,
-                .value = value_item.value,
-                .type = value_item.type,
-                .mutable = assignment_array[assignment_array.len - 2].mutable,
-                .temp = assignment_array[assignment_array.len - 2].temp,
-            };
-
-            // Check if variable exists and is immutable
-            if (self.root_scope.variables.get(identifier)) |existing_var| {
-                if (!existing_var.mutable) {
-                    Reporting.throwError("Error: Cannot reassign immutable variable '{s}'\n", .{identifier});
-                    return error.ImmutableVariable;
-                }
-            }
-
-            try self.root_scope.variables.put(identifier, variable);
-            return;
-        }
-
-        // Navigate to the correct scope, creating as needed
+    // Helper function to get the target scope
+    fn getTargetScope(self: *Preprocessor, groups: []Variable) !*Scope {
         var current_scope = &self.root_scope;
-
-        // Create all intermediate scopes if they don't exist
         for (groups) |group| {
             if (!current_scope.nested_scopes.contains(group.name)) {
                 const new_scope = try self.allocator.create(Scope);
@@ -413,33 +377,62 @@ pub const Preprocessor = struct {
             }
             current_scope = current_scope.nested_scopes.get(group.name).?;
         }
+        return current_scope;
+    }
 
-        // Check if variable exists and is immutable
-        if (current_scope.variables.get(identifier)) |existing_var| {
+    // Assigns a value using the assignment array
+    pub fn assignValue(self: *Preprocessor, assignment_array: []Variable) !void {
+        if (assignment_array.len < 2) return error.InvalidAssignment;
+
+        // Last item is the value
+        const value_item = assignment_array[assignment_array.len - 1];
+        // Second to last is the identifier
+        const identifier = assignment_array[assignment_array.len - 2];
+        // Everything before the identifier is groups
+        const groups = assignment_array[0 .. assignment_array.len - 2];
+
+        // Get the target scope
+        const target_scope = try self.getTargetScope(groups);
+
+        // Step 1: Determine if we have an explicit type declaration
+        const has_explicit_type = identifier.type != .nothing;
+        const declared_type = if (has_explicit_type) identifier.type else value_item.type;
+
+        // Step 2: Check if variable already exists
+        if (target_scope.variables.get(identifier.name)) |existing_var| {
+            // Check mutability
             if (!existing_var.mutable) {
-                Reporting.throwError("Error: Cannot reassign immutable variable '{s}'\n", .{identifier});
+                Reporting.throwError("Error: Cannot reassign immutable variable '{s}'\n", .{identifier.name});
                 return error.ImmutableVariable;
             }
+
+            // Check type compatibility with existing variable
+            if (!isTypeCompatible(existing_var.type, value_item.type)) {
+                Reporting.throwError("Error: Cannot assign {s} value to variable '{s}' of type {s}\n", .{ value_item.type.toString(), identifier.name, existing_var.type.toString() });
+                return error.TypeMismatch;
+            }
+        } else {
+            // Step 3: For new variables, handle type checking/inference
+            if (has_explicit_type) {
+                // Check if value matches declared type
+                if (!isTypeCompatible(declared_type, value_item.type)) {
+                    Reporting.throwError("Error: Cannot initialize {s} variable '{s}' with {s} value\n", .{ declared_type.toString(), identifier.name, value_item.type.toString() });
+                    return error.TypeMismatch;
+                }
+            }
+            // If no explicit type, we'll infer from the value (handled in variable creation)
         }
 
-        // Create/update the variable
+        // Create/update the variable with either declared or inferred type
         const variable = Variable{
-            .name = identifier,
+            .name = identifier.name,
             .value = value_item.value,
-            .type = value_item.type,
-            .mutable = value_item.mutable,
-            .temp = value_item.temp,
+            .type = declared_type,
+            .mutable = identifier.mutable,
+            .temp = identifier.temp,
         };
 
-        try current_scope.variables.put(identifier, variable);
-
-        // Build a path string for better debug output
-        var path_str = std.ArrayList(u8).init(self.allocator);
-        defer path_str.deinit();
-        for (groups, 0..) |g, i| {
-            if (i > 0) try path_str.appendSlice(" -> ");
-            try path_str.appendSlice(g.name);
-        }
+        try target_scope.variables.put(identifier.name, variable);
     }
 
     fn evaluateExpression(self: *Preprocessor, tokens: []Token) !Value {
@@ -947,3 +940,14 @@ pub const Preprocessor = struct {
         return 0; // Start of file
     }
 };
+
+// Helper function to check type compatibility
+fn isTypeCompatible(expected: ValueType, actual: ValueType) bool {
+    return switch (expected) {
+        .int => actual == .int,
+        .float => actual == .float,
+        .string => actual == .string,
+        .bool => actual == .bool,
+        .nothing => true, // nothing type can be assigned to anything
+    };
+}
