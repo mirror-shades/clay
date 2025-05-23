@@ -95,8 +95,8 @@ pub fn main() !void {
     };
 
     if (debug_lexer) {
-        Reporting.log("", .{});
-        reporter.logDebug(src.main, "Successfully tokenized file: {s}", .{file_path});
+        Reporting.log("\n", .{});
+        reporter.logDebug(src.main, "Successfully tokenized file: {s}\n", .{file_path});
         para_lexer.dumpLexer();
     }
 
@@ -110,8 +110,8 @@ pub fn main() !void {
     };
 
     if (debug_parser) {
-        Reporting.log("", .{});
-        reporter.logDebug(src.main, "Successfully parsed file: {s}", .{file_path});
+        Reporting.log("\n", .{});
+        reporter.logDebug(src.main, "Successfully parsed file: {s}\n", .{file_path});
         para_parser.dumpParser();
     }
 
@@ -128,7 +128,11 @@ pub fn main() !void {
     try preprocessor.process(para_parser.parsed_tokens.items);
 
     // Create a file with the final variable state
-    try Writer.writeVariableState(&preprocessor, "output.w.para", allocator);
+    try Writer.writeVariableState("output.w.para", allocator);
+
+    if (debug_preprocessor) {
+        try preprocessor.dumpVariables(allocator);
+    }
 }
 
 fn printNode(node: *ast.Node, indent: usize, reporter: *Reporting.Reporter) !void {

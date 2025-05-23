@@ -1,0 +1,11 @@
+int_assign = 5
+expression_assign = 5+5
+float_assign = 5.5
+bool_assign = true
+string_assign = "hello"
+
+int_assign?
+expression_assign?
+float_assign?
+bool_assign?
+string_assign?

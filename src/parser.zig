@@ -104,23 +104,22 @@ pub const Parser = struct {
                         } else if (self.tokens[current_index + 1].token_type == .TKN_TYPE_ASSIGN) {
                             continue;
                         }
-                        try self.parsed_tokens.append(ParsedToken{ .token_type = .TKN_GROUP, .literal = current_token.literal, .expression = null, .value_type = .nothing, .value = .{ .nothing = {} }, .line_number = current_token.line_number, .token_number = current_token.token_number, .is_mutable = false, .is_temporary = false });
+                        // Create a group scope for the first part of the path
+                        try self.groups.append(Group{ .name = current_token.literal, .type = null });
+                        // Only add the group token if it's not already the last token
+                        if (self.parsed_tokens.items.len == 0 or
+                            self.parsed_tokens.items[self.parsed_tokens.items.len - 1].token_type != .TKN_GROUP or
+                            !std.mem.eql(u8, self.parsed_tokens.items[self.parsed_tokens.items.len - 1].literal, current_token.literal))
+                        {
+                            try self.parsed_tokens.append(ParsedToken{ .token_type = .TKN_GROUP, .literal = current_token.literal, .expression = null, .value_type = .nothing, .value = .{ .nothing = {} }, .line_number = current_token.line_number, .token_number = current_token.token_number, .is_mutable = false, .is_temporary = false });
+                        }
                         continue;
                     }
-                    if (self.groups.items.len > 0) {
-                        for (self.groups.items) |group| {
-                            try self.parsed_tokens.append(ParsedToken{ .token_type = .TKN_GROUP, .literal = group.name, .expression = null, .value_type = .nothing, .value = .{ .nothing = {} }, .line_number = current_token.line_number, .token_number = current_token.token_number, .is_mutable = false, .is_temporary = false });
-                        }
-                    }
-                    if (self.tokens[current_index].token_type == .TKN_ARROW) {
-                        if (self.tokens[current_index + 1].token_type == .TKN_LBRACE) {
-                            continue;
-                        }
-                        try self.parsed_tokens.append(ParsedToken{ .token_type = .TKN_GROUP, .literal = current_token.literal, .expression = null, .value_type = .nothing, .value = .{ .nothing = {} }, .line_number = current_token.line_number, .token_number = current_token.token_number, .is_mutable = false, .is_temporary = false });
-                        continue;
-                    }
-
-                    if (self.tokens[current_index].token_type == .TKN_TYPE_ASSIGN or self.tokens[current_index].token_type == .TKN_VALUE_ASSIGN or self.tokens[current_index].token_type == .TKN_NEWLINE or self.tokens[current_index].token_type == .TKN_INSPECT) {
+                    if (self.tokens[current_index].token_type == .TKN_TYPE_ASSIGN or
+                        self.tokens[current_index].token_type == .TKN_VALUE_ASSIGN or
+                        self.tokens[current_index].token_type == .TKN_NEWLINE or
+                        self.tokens[current_index].token_type == .TKN_INSPECT)
+                    {
                         try self.parsed_tokens.append(ParsedToken{ .token_type = .TKN_IDENTIFIER, .literal = current_token.literal, .expression = null, .value_type = .nothing, .value = .{ .nothing = {} }, .line_number = current_token.line_number, .token_number = current_token.token_number, .is_mutable = self.is_mutable, .is_temporary = self.is_temporary });
                         if (self.tokens[current_index].token_type == .TKN_TYPE_ASSIGN) {
                             continue;

@@ -79,7 +79,7 @@ fn write(
     comptime stream: []const u8,
 ) void {
     nosuspend {
-        writer.print(prefix ++ format ++ "\n", args) catch |e| {
+        writer.print(prefix ++ format, args) catch |e| {
             std.debug.print("Failed to write {s}: {}\n", .{ stream, e });
             return;
         };

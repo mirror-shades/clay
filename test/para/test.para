@@ -1,0 +1,4 @@
+
+person -> age = 50
+
+newPersonAge = person -> age

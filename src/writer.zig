@@ -8,8 +8,6 @@ pub fn writeFlatFile(tokens: []ParsedToken) !void {
     var file = try std.fs.cwd().createFile("build/output.f.para", .{});
     defer file.close();
 
-    std.debug.print("Writing flat file\n", .{});
-
     var writer = file.writer();
     var new_line_needed: bool = false;
     for (tokens) |token| {
@@ -158,7 +156,7 @@ pub fn writeBakedFile(tokens: []ParsedToken, preprocessor: *Preprocessor, alloca
 }
 
 // Writes a file with the final variable state from all scopes
-pub fn writeVariableState(preprocessor: *Preprocessor, file_path: []const u8, allocator: std.mem.Allocator) !void {
+pub fn writeVariableState(file_path: []const u8, allocator: std.mem.Allocator) !void {
     const base_name = std.fs.path.basename(file_path);
     const output_path = try std.fmt.allocPrint(allocator, "build/{s}", .{base_name});
     defer allocator.free(output_path);
@@ -168,9 +166,6 @@ pub fn writeVariableState(preprocessor: *Preprocessor, file_path: []const u8, al
 
     // Create a buffered writer for better performance
     var buffered_writer = std.io.bufferedWriter(output_file.writer());
-
-    // Use the preprocessor's dumpVariables function to output all variables
-    try preprocessor.dumpVariables(allocator);
 
     // Flush the remaining buffered data
     try buffered_writer.flush();
