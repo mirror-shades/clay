@@ -1,8 +1,9 @@
 const std = @import("std");
-const ParsedToken = @import("parser.zig").ParsedToken;
-const Preprocessor = @import("prepro.zig").Preprocessor;
-const Value = @import("token.zig").Value;
-const ValueType = @import("token.zig").ValueType;
+const ParsedToken = @import("../frontend/parser.zig").ParsedToken;
+const Preprocessor = @import("../preprocessor/prepro.zig").Preprocessor;
+const TokenImport = @import("../token/token.zig");
+const Value = TokenImport.Value;
+const ValueType = TokenImport.ValueType;
 
 pub fn writeFlatFile(tokens: []ParsedToken) !void {
     var file = try std.fs.cwd().createFile("build/output.f.para", .{});

@@ -1,12 +1,12 @@
 const std = @import("std");
-const lexer = @import("lexer.zig");
-const token = @import("token.zig");
-const Lexer = @import("lexer.zig").Lexer;
-const Parser = @import("parser.zig").Parser;
-const ast = @import("ast.zig");
-const Preprocessor = @import("prepro.zig").Preprocessor;
-const Writer = @import("writer.zig");
-const Reporting = @import("reporting.zig");
+const lexer = @import("frontend/lexer.zig");
+const token = @import("token/token.zig");
+const Lexer = @import("frontend/lexer.zig").Lexer;
+const Parser = @import("frontend/parser.zig").Parser;
+const ast = @import("token/ast.zig");
+const Preprocessor = @import("preprocessor/prepro.zig").Preprocessor;
+const Writer = @import("utils/writer.zig");
+const Reporting = @import("utils/reporting.zig");
 const src = Reporting.DebugSource;
 
 fn getDisplayText(token_kind: token.TokenKind, token_text: []const u8) []const u8 {

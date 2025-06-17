@@ -1,6 +1,6 @@
 const std = @import("std");
-const token = @import("token.zig");
-const reporting = @import("reporting.zig");
+const token = @import("../token/token.zig");
+const reporting = @import("../utils/reporting.zig");
 
 const printError = std.debug.print;
 

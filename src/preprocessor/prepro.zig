@@ -1,10 +1,11 @@
 const std = @import("std");
-const ParsedToken = @import("parser.zig").ParsedToken;
-const Token = @import("token.zig").Token;
-const TokenKind = @import("token.zig").TokenKind;
-const ValueType = @import("token.zig").ValueType;
-const Value = @import("token.zig").Value;
-const Reporting = @import("reporting.zig");
+const ParsedToken = @import("../frontend/parser.zig").ParsedToken;
+const TokenImport = @import("../token/token.zig");
+const Token = TokenImport.Token;
+const TokenKind = TokenImport.TokenKind;
+const ValueType = TokenImport.ValueType;
+const Value = TokenImport.Value;
+const Reporting = @import("../utils/reporting.zig");
 
 pub const Preprocessor = struct {
     pub const Variable = struct {
